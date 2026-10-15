@@ -69,11 +69,11 @@ Per-type tool access can be added by passing pi's `--tools` (and optionally `--n
 
 ```sh
 npm install
-npm run check
+npm run check   # lint, format, and typecheck (npm run fix to apply fixes)
 npm test
-pi -e .   # try the working copy
+pi -e .         # try the working copy
 ```
 
-To release, bump `version` in `package.json`, commit, and push a `v<version>` tag; the publish workflow publishes it to npm.
+To release, run `npm version <patch|minor|major>` and `git push --follow-tags`. The tag's workflow publishes to npm and creates the GitHub release.
 
 What the extension draws, and how, is specified in [docs/design.md](docs/design.md).

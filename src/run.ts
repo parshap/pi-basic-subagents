@@ -132,12 +132,19 @@ export class Run {
 		if (generation !== this.generation || this.status !== "running") return; // Stopped meanwhile.
 		fs.mkdirSync(this.opts.sessionDir, { recursive: true });
 		const pi = piInvocation([
-			"--mode", "rpc",
-			"--session-dir", this.opts.sessionDir,
-			"--session-id", this.sessionId,
+			"--mode",
+			"rpc",
+			"--session-dir",
+			this.opts.sessionDir,
+			"--session-id",
+			this.sessionId,
 			...this.opts.args(),
 		]);
-		const proc = spawn(pi.command, pi.args, { cwd: this.opts.cwd, env: this.opts.env, stdio: ["pipe", "pipe", "pipe"] });
+		const proc = spawn(pi.command, pi.args, {
+			cwd: this.opts.cwd,
+			env: this.opts.env,
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 		this.proc = proc;
 		this.exited = new Promise((resolve) => proc.once("close", () => resolve()));
 
@@ -150,8 +157,7 @@ export class Run {
 		proc.stdout!.on("data", (chunk: string) => {
 			buffer += chunk;
 			// Split on LF only: JSON strings may contain U+2028/U+2029 (docs/json.md).
-			let nl: number;
-			while ((nl = buffer.indexOf("\n")) !== -1) {
+			for (let nl = buffer.indexOf("\n"); nl !== -1; nl = buffer.indexOf("\n")) {
 				const line = buffer.slice(0, nl).replace(/\r$/, "");
 				buffer = buffer.slice(nl + 1);
 				if (line) this.handle(line, pending, current());
@@ -167,7 +173,10 @@ export class Run {
 			for (const resolve of pending.values()) resolve({ success: false, error: "pi exited" });
 			pending.clear();
 			if (!current()) return;
-			this.finish(this.stopping ? "stopped" : "failed", `pi exited before finishing (code ${code}, signal ${signal}).\n${this.stderr.trim()}`);
+			this.finish(
+				this.stopping ? "stopped" : "failed",
+				`pi exited before finishing (code ${code}, signal ${signal}).\n${this.stderr.trim()}`,
+			);
 		});
 
 		// pi answers once it has started; a child stuck in startup fails here. Prompts aren't
@@ -180,7 +189,8 @@ export class Run {
 		const res = await this.request({ type: "prompt", message, streamingBehavior: "followUp" });
 		if (!current()) return;
 		if (!res.success) this.finish("failed", `pi rejected the prompt: ${res.error}`);
-		else if (res.data?.disposition === "handled") this.finish("completed", "(the prompt was handled without a model run)");
+		else if (res.data?.disposition === "handled")
+			this.finish("completed", "(the prompt was handled without a model run)");
 	}
 
 	/** Steer a running child; returns false if its run finished first. */
@@ -291,7 +301,11 @@ export class Run {
 	private text(): string {
 		const content = this.lastAssistant?.content;
 		if (!Array.isArray(content)) return "";
-		return content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n").trim();
+		return content
+			.filter((c: any) => c.type === "text")
+			.map((c: any) => c.text)
+			.join("\n")
+			.trim();
 	}
 
 	private finish(status: Status, result: string) {

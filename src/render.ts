@@ -42,7 +42,9 @@ export function lines(texts: string[]): Component {
 function stack(children: Component[]): Component {
 	return {
 		render: (width) => children.flatMap((c) => c.render(width)),
-		invalidate: () => children.forEach((c) => c.invalidate()),
+		invalidate: () => {
+			for (const c of children) c.invalidate();
+		},
 	};
 }
 
@@ -62,7 +64,11 @@ export function barred(child: Component, theme: Theme): Component {
 }
 
 const title = (name: string, theme: Theme) => theme.fg("toolTitle", theme.bold(name));
-const firstLines = (text: string, n: number) => text.split("\n").filter((l) => l.trim()).slice(0, n);
+const firstLines = (text: string, n: number) =>
+	text
+		.split("\n")
+		.filter((l) => l.trim())
+		.slice(0, n);
 
 function expandHint(theme: Theme): string {
 	let key = "Ctrl+O";
@@ -75,7 +81,8 @@ function expandHint(theme: Theme): string {
 /** A report's full view: its Run line, transcript link, and result. */
 function reportSection(r: ReportView, theme: Theme, color: BodyColor): Component {
 	const parts: Component[] = [lines([runLine(r, theme)])];
-	if (r.session_path) parts.push(lines([theme.fg("muted", hyperlink(r.session_path, pathToFileURL(r.session_path).href))]));
+	if (r.session_path)
+		parts.push(lines([theme.fg("muted", hyperlink(r.session_path, pathToFileURL(r.session_path).href))]));
 	if (r.result) parts.push(new Spacer(1), markdown(r.result, theme, color));
 	return stack(parts);
 }
@@ -96,9 +103,16 @@ type Result<D> = { content: { type: string; text?: string }[]; details?: D };
 type Ctx = { expanded: boolean; isError: boolean; state: Record<string, unknown>; invalidate(): void };
 
 export const startRenderers = {
-	renderCall(args: { subagent_type?: string; description?: string; model?: string; prompt?: string }, theme: Theme, ctx: Ctx) {
+	renderCall(
+		args: { subagent_type?: string; description?: string; model?: string; prompt?: string },
+		theme: Theme,
+		ctx: Ctx,
+	) {
 		const sep = theme.fg("muted", " · ");
-		const head = [`${title("subagent_start", theme)} ${theme.fg("muted", args.subagent_type ?? "")}`, theme.fg("text", args.description ?? "")];
+		const head = [
+			`${title("subagent_start", theme)} ${theme.fg("muted", args.subagent_type ?? "")}`,
+			theme.fg("text", args.description ?? ""),
+		];
 		if (args.model) head.push(theme.fg("muted", args.model));
 		const prompt = args.prompt ?? "";
 		const body = ctx.expanded
@@ -107,7 +121,7 @@ export const startRenderers = {
 		const call = stack([lines([head.join(sep)]), ...body]);
 		return ctx.isError ? call : barred(call, theme);
 	},
-	renderResult(result: Result<{ run: RunView }>, _opts: unknown, theme: Theme, ctx: Ctx) {
+	renderResult(result: Result<{ run: RunView }>, _opts: unknown, theme: Theme) {
 		if (!result.details?.run) return textResult(result, theme);
 		return barred(lines([runLine(result.details.run, theme)]), theme);
 	},
