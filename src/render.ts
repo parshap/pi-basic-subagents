@@ -1,4 +1,4 @@
-// The shapes in docs/design.md. Everything here draws from structured data, never from model-facing text.
+// The shapes in docs/ux.md. Everything here draws from structured data, never from model-facing text.
 import { pathToFileURL } from "node:url";
 import { getMarkdownTheme, keyText, type Theme } from "@earendil-works/pi-coding-agent";
 import { Box, type Component, hyperlink, Markdown, Spacer, truncateToWidth } from "@earendil-works/pi-tui";

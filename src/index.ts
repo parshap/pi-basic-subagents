@@ -85,7 +85,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	const widget = new Widget(running);
 	pi.registerMessageRenderer("subagent-report", renderReportMessage);
 
-	/** A report with what the shapes in docs/design.md show about its run. */
+	/** A report with what the shapes in docs/ux.md show about its run. */
 	const view = (r: Report): ReportView => ({ ...getRun(r.id).view(), ...r });
 
 	/** Empty the outbox into one custom message. */
