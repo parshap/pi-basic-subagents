@@ -2,6 +2,14 @@
 
 Background-first subagents for [pi](https://pi.dev). A subagent is a regular `pi` session started in a directory, the same as one you'd start yourself, with a short role prompt and a brief.
 
+## Install
+
+```sh
+pi install npm:pi-basic-subagents
+```
+
+Or from git: `pi install git:github.com/parshap/pi-basic-subagents`.
+
 ## Design
 
 - **A subagent is just a pi session.** It gets your settings, extensions, MCP servers at their configured exposure, codemode, skills, `AGENTS.md`, and project config when the project is trusted. There's no special child runtime and no tool allowlist; the only CLI flags it inherits from the parent are tool and resource restrictions (`--tools`, `--exclude-tools`, `--no-tools`, `--no-builtin-tools`, `-e`, `--no-extensions`, `--no-mcp`, `--skill`, `--no-skills`, `--no-context-files`, `--offline`), so it never gets more than its parent.
@@ -63,6 +71,9 @@ Per-type tool access can be added by passing pi's `--tools` (and optionally `--n
 npm install
 npm run check
 npm test
+pi -e .   # try the working copy
 ```
+
+To release, bump `version` in `package.json`, commit, and push a `v<version>` tag; the publish workflow publishes it to npm.
 
 What the extension draws, and how, is specified in [docs/design.md](docs/design.md).
