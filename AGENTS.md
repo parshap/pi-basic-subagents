@@ -1,0 +1,4 @@
+- Before committing, run `npm run check` (`npm run fix` applies fixes) and `npm test`.
+- What the extension draws follows docs/design.md.
+- `@earendil-works/*` and `typebox` come from pi at runtime: `peerDependencies` (`*`) and `devDependencies` only.
+- `@types/node` stays on pi's minimum Node major (`engines`) to catch newer APIs.

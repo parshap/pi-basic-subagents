@@ -11,14 +11,19 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "basic-subagents-test-"));
 process.argv[1] = path.join(import.meta.dirname, "fake-pi.mjs");
 
 /** Load the extension at `depth` with `settings`, start a session, and return its tools and messages. */
-function load(depth: number, settings: unknown = {}, entries: unknown[] = [], sessionFile = path.join(tmp, "parent.jsonl")) {
+function load(
+	depth: number,
+	settings: unknown = {},
+	entries: unknown[] = [],
+	sessionFile = path.join(tmp, "parent.jsonl"),
+) {
 	process.env.PI_BASIC_SUBAGENTS_DEPTH = String(depth);
 	const tools = new Map<string, any>();
-	const handlers: Record<string, Function> = {};
+	const handlers: Record<string, (...args: any[]) => any> = {};
 	const messages: string[] = [];
 	let idle = false;
 	basicSubagents({
-		on: (name: string, fn: Function) => (handlers[name] = fn),
+		on: (name: string, fn: (...args: any[]) => any) => (handlers[name] = fn),
 		registerTool: (t: any) => tools.set(t.name, t),
 		registerMessageRenderer() {},
 		getSettings: () => settings,
@@ -94,13 +99,19 @@ test("a reopened session knows earlier runs: interrupted ones stopped and resuma
 
 	const second = load(0, {}, entries);
 	assert.deepEqual(second.messages, []);
-	assert.equal(await second.callText("subagent_wait", {}), `No subagents are running. Earlier ones: ${done} completed, ${cut} stopped. Pass their ids for reports.`);
+	assert.equal(
+		await second.callText("subagent_wait", {}),
+		`No subagents are running. Earlier ones: ${done} completed, ${cut} stopped. Pass their ids for reports.`,
+	);
 	const [a, b] = await second.call("subagent_wait", { ids: [done, cut] });
 	assert.equal(a.status, "completed");
 	assert.match(a.result, /last message in the transcript/);
 	assert.match(b.result, /Stopped when the parent session ended/);
 	assert.match(b.session_path, new RegExp(`_${entries.find((e) => e.data.id === cut).data.sessionId}\\.jsonl$`));
-	assert.equal(await second.call("subagent_message", { id: cut, message: "go on" }).then((r: any) => r.delivered), "resume");
+	assert.equal(
+		await second.call("subagent_message", { id: cut, message: "go on" }).then((r: any) => r.delivered),
+		"resume",
+	);
 	const [c] = await second.call("subagent_wait", { ids: [cut] });
 	assert.equal(c.result, "go on");
 });
@@ -156,7 +167,10 @@ test("a start that fails leaves no run behind", async () => {
 	process.argv[1] = path.join(tmp, "broken-pi.mjs");
 	fs.writeFileSync(process.argv[1], "process.exit(3);");
 	try {
-		await assert.rejects(call("subagent_start", { subagent_type: "explore", prompt: "x", description: "d" }), /pi exited/);
+		await assert.rejects(
+			call("subagent_start", { subagent_type: "explore", prompt: "x", description: "d" }),
+			/pi exited/,
+		);
 	} finally {
 		process.argv[1] = fakePi;
 	}
@@ -187,7 +201,10 @@ test("a subagent about to finish waits for its own subagents, then continues wit
 	const other = { type: "custom", customType: "other-extension" };
 	const settle = () => handlers.agent_before_settle({ outcome: "completed", entries: [other] }, {});
 	const first = await settle();
-	assert.deepEqual(first.entries.map((e: any) => e.customType), ["other-extension", "subagent-report"]);
+	assert.deepEqual(
+		first.entries.map((e: any) => e.customType),
+		["other-extension", "subagent-report"],
+	);
 	assert.match(first.entries[1].content, /\nhello\n/);
 	assert.equal(first.continue, true);
 	assert.equal(await settle(), undefined);
@@ -201,7 +218,18 @@ test("a parent that doesn't exit when done doesn't wait", async () => {
 });
 
 function finished(result: string): Run {
-	const run = new Run({ id: "sa-test", sessionId: randomUUID(), type: "explore", description: "test", cwd: tmp, sessionDir: tmp, model: undefined, args: () => [], env: {}, onSettle() {} });
+	const run = new Run({
+		id: "sa-test",
+		sessionId: randomUUID(),
+		type: "explore",
+		description: "test",
+		cwd: tmp,
+		sessionDir: tmp,
+		model: undefined,
+		args: () => [],
+		env: {},
+		onSettle() {},
+	});
 	run.status = "completed";
 	run.result = result;
 	return run;

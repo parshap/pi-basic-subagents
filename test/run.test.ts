@@ -12,7 +12,18 @@ process.argv[1] = path.join(import.meta.dirname, "fake-pi.mjs");
 
 function fakeRun(env: Record<string, string> = {}, sessionDir = tmp) {
 	const log = path.join(tmp, `spawns-${Math.random()}`);
-	const run = new Run({ id: "sa-test", sessionId: randomUUID(), type: "explore", description: "test", cwd: tmp, sessionDir, model: undefined, args: () => [], env: { ...process.env, FAKE_LOG: log, ...env }, onSettle() {} });
+	const run = new Run({
+		id: "sa-test",
+		sessionId: randomUUID(),
+		type: "explore",
+		description: "test",
+		cwd: tmp,
+		sessionDir,
+		model: undefined,
+		args: () => [],
+		env: { ...process.env, FAKE_LOG: log, ...env },
+		onSettle() {},
+	});
 	const spawns = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []);
 	return { run, spawns };
 }

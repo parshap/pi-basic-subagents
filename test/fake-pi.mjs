@@ -8,7 +8,10 @@ const env = process.env;
 const arg = (name) => process.argv[process.argv.indexOf(name) + 1];
 const sessionFile = join(arg("--session-dir"), `2026_${arg("--session-id")}.jsonl`);
 if (!existsSync(sessionFile)) {
-	writeFileSync(sessionFile, `${JSON.stringify({ type: "session", version: 3, id: arg("--session-id"), timestamp: new Date().toISOString(), cwd: process.cwd() })}\n`);
+	writeFileSync(
+		sessionFile,
+		`${JSON.stringify({ type: "session", version: 3, id: arg("--session-id"), timestamp: new Date().toISOString(), cwd: process.cwd() })}\n`,
+	);
 }
 let entryId = 0;
 if (env.FAKE_LOG) appendFileSync(env.FAKE_LOG, `${process.pid}\n`);
@@ -20,15 +23,22 @@ if (env.FAKE_STUBBORN) {
 const out = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 let timer;
 let messages = [];
-let queue = [];
+const queue = [];
 
 /** End the run; `beforeSettled` runs after pi marks it idle, `settledDelay` ms before it reports agent_settled. */
 function settle(aborted, beforeSettled = () => {}, settledDelay = 0) {
 	clearTimeout(timer);
 	timer = undefined;
-	const message = { role: "assistant", stopReason: aborted ? "aborted" : "stop", content: [{ type: "text", text: messages.join("+") }] };
+	const message = {
+		role: "assistant",
+		stopReason: aborted ? "aborted" : "stop",
+		content: [{ type: "text", text: messages.join("+") }],
+	};
 	const id = `${process.pid}-${++entryId}`;
-	appendFileSync(sessionFile, `${JSON.stringify({ type: "message", id, parentId: null, timestamp: new Date().toISOString(), message })}\n`);
+	appendFileSync(
+		sessionFile,
+		`${JSON.stringify({ type: "message", id, parentId: null, timestamp: new Date().toISOString(), message })}\n`,
+	);
 	out({ type: "message_end", message });
 	messages = [];
 	beforeSettled();
@@ -40,8 +50,7 @@ let buffer = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
 	buffer += chunk;
-	let nl;
-	while ((nl = buffer.indexOf("\n")) !== -1) {
+	for (let nl = buffer.indexOf("\n"); nl !== -1; nl = buffer.indexOf("\n")) {
 		const cmd = JSON.parse(buffer.slice(0, nl));
 		buffer = buffer.slice(nl + 1);
 		const respond = (data) => out({ type: "response", id: cmd.id, command: cmd.type, success: true, data });
@@ -60,10 +69,14 @@ process.stdin.on("data", (chunk) => {
 			if (env.FAKE_STEER_BEFORE_SETTLED) {
 				// The run finishes as the steer arrives, and agent_settled handlers take a while: pi accepts the
 				// steer into a queue no run will read.
-				settle(false, () => {
-					queue.push(cmd.message);
-					respond({ disposition: "queued" });
-				}, 100);
+				settle(
+					false,
+					() => {
+						queue.push(cmd.message);
+						respond({ disposition: "queued" });
+					},
+					100,
+				);
 				continue;
 			}
 			messages.push(cmd.message);

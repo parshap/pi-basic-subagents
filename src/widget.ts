@@ -46,7 +46,8 @@ export class Widget {
 			(tui, theme) => {
 				this.tui = tui;
 				return {
-					render: (width) => lines(this.running().map((r) => runLine({ ...r.view(), state: state(r) }, theme))).render(width),
+					render: (width) =>
+						lines(this.running().map((r) => runLine({ ...r.view(), state: state(r) }, theme))).render(width),
 					invalidate() {},
 				};
 			},

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
 import * as path from "node:path";
+import { test } from "node:test";
 import { parseArgs } from "@earendil-works/pi-coding-agent";
 import { currentDepth, DEFAULTS, inheritedFlags, resolveConfig } from "../src/config.ts";
 
@@ -35,6 +35,16 @@ test("depth comes from the environment", () => {
 });
 
 test("only restrictive and resource CLI flags pass to children, with local paths made absolute", () => {
-	const flags = inheritedFlags(parseArgs(["--model", "x", "-p", "--tools", "read,grep", "-ne", "-e", "builtin:foo", "-e", "package.json", "hi"]));
-	assert.deepEqual(flags, ["--tools", "read,grep", "--no-extensions", "--extension", "builtin:foo", "--extension", path.resolve("package.json")]);
+	const flags = inheritedFlags(
+		parseArgs(["--model", "x", "-p", "--tools", "read,grep", "-ne", "-e", "builtin:foo", "-e", "package.json", "hi"]),
+	);
+	assert.deepEqual(flags, [
+		"--tools",
+		"read,grep",
+		"--no-extensions",
+		"--extension",
+		"builtin:foo",
+		"--extension",
+		path.resolve("package.json"),
+	]);
 });

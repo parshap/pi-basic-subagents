@@ -17,21 +17,35 @@ test("a Run line shows a running subagent's activity, and a finished one's statu
 });
 
 test("a subagent_start block shows its arguments and a prompt preview behind the bar, and the full prompt expanded", () => {
-	const args = { subagent_type: "explore", description: "Audit auth", model: "openai/gpt-6-luna:low", prompt: "Line one\nLine two\nLine three" };
+	const args = {
+		subagent_type: "explore",
+		description: "Audit auth",
+		model: "openai/gpt-6-luna:low",
+		prompt: "Line one\nLine two\nLine three",
+	};
 	assert.deepEqual(draw(startRenderers.renderCall(args, theme, ctx())), [
 		"▌ subagent_start explore · Audit auth · openai/gpt-6-luna:low",
 		"▌ Line one",
 		"▌ Line two",
 	]);
-	assert.ok(draw(startRenderers.renderCall(args, theme, ctx({ expanded: true }))).some((l) => l.includes("Line three")));
-	assert.equal(draw(startRenderers.renderCall(args, theme, ctx({ isError: true })))[0], "subagent_start explore · Audit auth · openai/gpt-6-luna:low");
-	assert.deepEqual(draw(startRenderers.renderResult({ content: [], details: { run } }, {}, theme, ctx())), ["▌ ● sa-1a2b explore · Audit auth · running"]);
+	assert.ok(
+		draw(startRenderers.renderCall(args, theme, ctx({ expanded: true }))).some((l) => l.includes("Line three")),
+	);
+	assert.equal(
+		draw(startRenderers.renderCall(args, theme, ctx({ isError: true })))[0],
+		"subagent_start explore · Audit auth · openai/gpt-6-luna:low",
+	);
+	assert.deepEqual(draw(startRenderers.renderResult({ content: [], details: { run } }, {}, theme)), [
+		"▌ ● sa-1a2b explore · Audit auth · running",
+	]);
 });
 
 test("a subagent_wait block lists Run lines, and full reports expanded", () => {
 	const reports = [{ ...run, status: "completed" as const, result: "All good.", session_path: "/s/child.jsonl" }];
 	const result = { content: [], details: { reports } };
-	assert.deepEqual(draw(waitRenderers.renderResult(result, {}, theme, ctx())), ["✓ sa-1a2b explore · Audit auth · completed"]);
+	assert.deepEqual(draw(waitRenderers.renderResult(result, {}, theme, ctx())), [
+		"✓ sa-1a2b explore · Audit auth · completed",
+	]);
 	const expanded = draw(waitRenderers.renderResult(result, {}, theme, ctx({ expanded: true })));
 	assert.ok(expanded.some((l) => l.includes("/s/child.jsonl")) && expanded.some((l) => l.includes("All good.")));
 	const none = { content: [{ type: "text", text: "No subagents are running." }], details: { reports: [] } };
@@ -44,7 +58,10 @@ test("a subagent_message block gets the bar once its result says it resumed the 
 	c.invalidate = () => redraws++;
 	const args = { id: "sa-1a2b", message: "Also check b.txt" };
 	assert.deepEqual(draw(messageRenderers.renderCall(args, theme, c)), ["subagent_message sa-1a2b", "Also check b.txt"]);
-	assert.deepEqual(draw(messageRenderers.renderResult({ content: [], details: { delivered: "resume" } }, {}, theme, c)), ["▌ delivered as resume"]);
+	assert.deepEqual(
+		draw(messageRenderers.renderResult({ content: [], details: { delivered: "resume" } }, {}, theme, c)),
+		["▌ delivered as resume"],
+	);
 	await Promise.resolve();
 	assert.equal(redraws, 1);
 	assert.equal(draw(messageRenderers.renderCall(args, theme, c))[0], "▌ subagent_message sa-1a2b");
@@ -56,6 +73,10 @@ test("a Report block is one Run line per report until expanded", () => {
 	assert.ok(collapsed.some((l) => l.includes("✓ sa-1a2b explore · Audit auth · completed")));
 	assert.ok(collapsed.some((l) => l.includes("to expand)")));
 	assert.ok(!collapsed.some((l) => l.includes("Done.")));
-	assert.ok(draw(renderReportMessage({ details: { reports } }, { expanded: true, outputPad: 1 }, theme)).some((l) => l.includes("Done.")));
+	assert.ok(
+		draw(renderReportMessage({ details: { reports } }, { expanded: true, outputPad: 1 }, theme)).some((l) =>
+			l.includes("Done."),
+		),
+	);
 	assert.equal(renderReportMessage({}, { expanded: false, outputPad: 1 }, theme), undefined);
 });

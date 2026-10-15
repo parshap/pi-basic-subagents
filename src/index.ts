@@ -27,7 +27,8 @@ import { Widget } from "./widget.ts";
 const ENTRY = "basic-subagent";
 const INTERRUPTED = "(Stopped when the parent session ended. Resume it with subagent_message.)";
 const STOPPED = "(Stopped. Resume it with subagent_message.)";
-const COMPLETED_EARLIER = "(Finished before this session was reopened. Its report is the last message in the transcript.)";
+const COMPLETED_EARLIER =
+	"(Finished before this session was reopened. Its report is the last message in the transcript.)";
 const WAKE_TEXT = "Subagent reports arrived above. Continue the task they belong to, or report to the user.";
 
 export interface Report {
@@ -49,7 +50,9 @@ export function report(run: Run): Report {
 /** Where a session's subagents keep their sessions: in a directory named after its file, so /resume doesn't list them. */
 function childSessionDir(sm: ExtensionContext["sessionManager"]): string {
 	const file = sm.getSessionFile();
-	return file ? file.replace(/\.jsonl$/, "") : path.join(getAgentDir(), "sessions", "basic-subagents", sm.getSessionId());
+	return file
+		? file.replace(/\.jsonl$/, "")
+		: path.join(getAgentDir(), "sessions", "basic-subagents", sm.getSessionId());
 }
 
 function formatReport(r: Report, run: Run): string {
@@ -157,7 +160,9 @@ export default function basicSubagents(pi: ExtensionAPI) {
 
 	function checkCapacity() {
 		if (running().length < config.maxConcurrent) return;
-		throw new Error(`${config.maxConcurrent} subagents are already running. Don't retry until one finishes (subagent_wait).`);
+		throw new Error(
+			`${config.maxConcurrent} subagents are already running. Don't retry until one finishes (subagent_wait).`,
+		);
 	}
 
 	function getRun(id: string): Run {
@@ -243,15 +248,16 @@ export default function basicSubagents(pi: ExtensionAPI) {
 				prompt: Type.String({ description: "The full, self-contained brief." }),
 				description: Type.String({ description: "3-5 words, for display." }),
 				model: Type.Optional(
-					Type.String({ description: 'Model as "provider/id" with optional ":thinking". Defaults to the current model.' }),
+					Type.String({
+						description: 'Model as "provider/id" with optional ":thinking". Defaults to the current model.',
+					}),
 				),
 			}),
 			outputSchema: Type.Object({ id: Type.String() }),
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				checkCapacity();
 
-				const model =
-					params.model ?? (ctx.model && `${ctx.model.provider}/${ctx.model.id}:${pi.getThinkingLevel()}`);
+				const model = params.model ?? (ctx.model && `${ctx.model.provider}/${ctx.model.id}:${pi.getThinkingLevel()}`);
 				const sessionId = ctx.sessionManager.getSessionId();
 
 				let id: string;
