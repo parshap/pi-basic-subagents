@@ -4,9 +4,25 @@
   "description": "Background-first subagents for pi: each subagent is a regular pi session.",
   "type": "module",
   "license": "MIT",
+  "author": "Parsha Pourkhomami <parshap+git@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/parshap/pi-basic-subagents.git"
+  },
+  "homepage": "https://github.com/parshap/pi-basic-subagents#readme",
+  "bugs": "https://github.com/parshap/pi-basic-subagents/issues",
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "pi",
+    "subagents"
   ],
+  "files": [
+    "src",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "pi": {
     "extensions": [
       "./src/index.ts"
@@ -14,7 +30,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "node --test test/"
+    "test": "node --test 'test/*.test.ts'"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
