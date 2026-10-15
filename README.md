@@ -1,6 +1,19 @@
 # pi-basic-subagents
 
-Background-first subagents for [pi](https://pi.dev). A subagent is a regular `pi` session started in a directory, the same as one you'd start yourself, with a short role prompt and a brief.
+Minimal subagents for [pi](https://pi.dev), where each subagent is a regular pi session with the same tools and access as your agent, rather than task-specific restricted subagents.
+
+```
+● sa-1a2b explore · Audit auth flow · bash · 1m12s
+● sa-3c4d general-purpose · Fix flaky upload test · thinking · 24s
+```
+
+## Design
+
+- **Just a pi session.** Each subagent runs in your project with your settings, extensions, MCP servers, skills, and `AGENTS.md`, and its transcript is a normal pi session you can open.
+- **Nothing to configure.** There are no agent definitions, prompts, or tool lists to write. Install it and ask your agent to delegate to subagents.
+- **Familiar to models.** Four tools (start, wait, message, stop) modeled on Claude Code's subagent tools.
+- **One-way communication.** Your agent (the parent) sends a prompt and can steer or stop the subagent while it works. The subagent reports back only when it finishes.
+- **Built for codemode.** Pi's [codemode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/codemode.md) lets your agent write dynamic subagent workflows.
 
 ## Install
 
@@ -8,72 +21,79 @@ Background-first subagents for [pi](https://pi.dev). A subagent is a regular `pi
 pi install npm:pi-basic-subagents
 ```
 
-Or from git: `pi install git:github.com/parshap/pi-basic-subagents`.
+## Use
 
-## Design
+Ask for it in plain words; your agent calls the tools:
 
-- **A subagent is just a pi session.** It gets your settings, extensions, MCP servers at their configured exposure, codemode, skills, `AGENTS.md`, and project config when the project is trusted. There's no special child runtime and no tool allowlist; the only CLI flags it inherits from the parent are tool and resource restrictions (`--tools`, `--exclude-tools`, `--no-tools`, `--no-builtin-tools`, `-e`, `--no-extensions`, `--no-mcp`, `--skill`, `--no-skills`, `--no-context-files`, `--offline`), so it never gets more than its parent.
-- **Expose pi's natural shape.** Each run is a `pi --mode rpc` subprocess. Steering and stopping are RPC `steer`/`abort`, resume reopens the saved session file, permission prompts use the `PI_SUBAGENT_PARENT_SESSION` convention, orchestration is codemode, and specialization is skills.
-- **Follow Claude Code's model.** Background by default with results delivered on completion, one message verb to steer or resume, generic `explore` and `general-purpose` types, and Claude Code's parameter names.
-- **Minimal.** Four tools. Foreground is start + wait, not a second mode.
-- **Delegation is one-way: brief in, report out.** A subagent never asks its parent anything mid-run. It makes routine judgment calls and states its assumptions; at a real fork it stops and reports `blocked:` with the options, and the parent answers with `subagent_message`.
+> Have a subagent research the best queuing approach while you fix the failing test.
 
-Not included: workflows, chains, custom agent files, per-agent tool restrictions, worktree isolation, or a child-to-parent question channel.
+> Have two subagents review this work, one using Opus and one using GPT, and compare what they find.
 
-## Tools
+Starting a subagent returns right away, and running subagents show live below the editor. When one finishes, its report lands in your conversation and your agent picks it up. Your agent can steer running subagents, or resume finished ones, by sending them messages.
 
-| Tool | Parameters | Returns |
-|---|---|---|
-| `subagent_start` | `subagent_type` (`explore` \| `general-purpose`), `prompt`, `description`, `model?` | `{ id }` as soon as the child is running |
-| `subagent_wait` | `ids?` (default: running ones and any whose report hasn't arrived), `timeout_ms?` (0 checks status without waiting) | per id: `{ id, status, result?, session_path? }` |
-| `subagent_message` | `id`, `message` | `{ delivered: "steer" \| "resume" }` |
-| `subagent_stop` | `id` | `{ status }`: `"stopped"`, or how it had already finished |
+There are two subagent types: `explore` for research, review, and verification, told to leave the project as it found it (an instruction, not a security sandbox), and `general-purpose` for work that changes things. A subagent uses the same model as your agent unless your agent picks another.
 
-- `model` is `provider/id` with an optional `:thinking` suffix. It defaults to the parent's model and thinking level.
-- When a run finishes, its report waits until the parent is idle. Then pending reports are appended to the session as one `<subagent_notification>` custom message, and a short fixed user prompt wakes the parent. The wake is a prompt rather than a custom message with `triggerTurn` so it goes through pi's normal prompt path (`before_agent_start`). If pi rejects the wake, the reports are already in the session. A report that `subagent_wait` returns first isn't sent again.
-- Cancelling a wait (Esc, or a codemode script ending) cancels only the wait.
-- `subagent_message` steers a running subagent. A finished or stopped one resumes from its session with full history and reports again on completion.
-- As with Claude Code's tools that change state, `subagent_message` and `subagent_stop` run in order with the other calls in their message, so a `subagent_wait` after them sees their effect. pi can only order a whole message, so its other calls run one at a time too. `subagent_start` and `subagent_wait` run in parallel.
-- Results over pi's tool-output limits (2000 lines or 50KB) are truncated; the full text is the last message in the transcript.
+To steer subagent usage and model choices, add guidance to your `AGENTS.md`, for example:
 
-All four tools work from codemode, since runs belong to the extension and not to the tool call:
+```markdown
+## Subagents
 
-```js
-const ids = await Promise.all(briefs.map((prompt) => tools.subagent_start({ subagent_type: "explore", prompt, description: "…" })));
-return await tools.subagent_wait({ ids: ids.map((r) => r.id) });
+Delegate to subagents only when asked. Choose model and thinking level by task:
+
+- Complex implementation or research: `gpt-6.1-sol:medium`
+- Well-specified edits to 1–3 files: `gpt-6-luna:low`
+- Reviews: `claude-opus-5-5:high` or `gpt-6.1-sol:high`
 ```
-
-## Behavior
-
-- The child process lives only while a run is active; one that doesn't exit after its run is terminated. Sessions are saved under the parent session's directory (`<parent session file without .jsonl>/`), so they don't show in `/resume`.
-- **Directory and trust.** A subagent runs in the parent's directory, so the parent project's settings apply to it too. There's no `cwd` parameter, as in Claude Code: in another directory, the parent project's settings, including tool limits, wouldn't apply. The child gets `--approve` when the parent trusts the project and `--no-approve` otherwise, so it's never more trusted than the parent. Trust and inherited flags are recomputed for every launch, so a resume follows the parent's current state.
-- **Dialogs.** Nobody watches a background subagent, so extension dialogs (`select`, `confirm`, `input`, `editor`) are cancelled immediately.
-- **Permissions.** With [`@gotgenes/pi-permission-system`](https://github.com/gotgenes/pi-packages), the child's permission asks are forwarded to the parent session's UI because the child is spawned with `PI_SUBAGENT_PARENT_SESSION`. An inherited value is kept, so nested children forward to the root session.
-- **Nesting and print mode.** A subagent, or a parent in print or json mode, exits when it finishes, which stops its own subagents. So before it finishes, it waits for them and continues with their reports. Stopping the process, or the subagent from its parent, ends the wait.
-- **Shutdown and reopening.** When the parent session shuts down (exit, `/reload`, `/new`, `/resume`), running children are aborted and terminated. Each run and its status changes are recorded in the parent session as custom entries outside the model's context, so subagent ids keep working when the session is reopened: `subagent_wait` reports runs cut short by the exit as stopped and points finished ones to their transcripts, and `subagent_message` resumes them. With no ids and nothing running, `subagent_wait` lists the session's earlier subagents. A fork (`/fork`) doesn't take over its original's subagents, so the two never share a child session; their reports stay in the copied conversation.
 
 ## Configuration
 
-In `~/.pi/agent/settings.json`, or `.pi/settings.json` in a trusted project (project values override user values key by key):
+Optional. Set any of these under `basicSubagents` in `~/.pi/agent/settings.json`, or in `.pi/settings.json` in a trusted project, which overrides it per setting:
 
 ```json
-{ "basicSubagents": { "maxConcurrent": 20, "maxDepth": 1 } }
+{
+  "basicSubagents": {
+    "maxConcurrent": 5
+  }
+}
 ```
 
-- `maxConcurrent`: running subagents per session. Starting or resuming more fails until one finishes.
-- `maxDepth`: subagent layers below the main session. The default of 1 means subagents can't start their own. Every subagent is a full pi process that starts its own extensions and MCP servers, so deep trees multiply processes.
+| Setting | Default | Description |
+|---|---|---|
+| `maxConcurrent` | `20` | How many subagents can run at once per session. |
+| `maxDepth` | `1` | How many layers of subagents are allowed below your session. At `1`, subagents can't start their own. |
 
-Per-type tool access can be added by passing pi's `--tools` (and optionally `--no-extensions`) to the child.
+## FAQ
 
-## Development
+**Why model the tools on Claude Code's subagent tools?**
 
-```sh
-npm install
-npm run check   # lint, format, and typecheck (npm run fix to apply fixes)
-npm test
-pi -e .         # try the working copy
-```
+Many models have seen Claude Code's subagent tools in training, so they already know the pattern: a self-contained brief, a type, a short description, results that arrive later, and a message to follow up. Using the same shape and parameter names (`subagent_type`, `prompt`, `description`) means your agent delegates well without long instructions.
 
-To release, run `npm version <patch|minor|major>` and `git push --follow-tags`. The tag's workflow publishes to npm and creates the GitHub release.
+**Why one-way communication? What if a subagent gets stuck?**
 
-What the extension draws, and how, is specified in [docs/design.md](docs/design.md).
+A subagent works in the background, where nobody is watching to answer questions, and your agent, busy with its own work, is a poor stand-in. So a subagent makes routine judgment calls itself and states its assumptions in its report. At a decision that would change the outcome, it stops and reports `blocked:` with the options. Your agent, or you through it, answers with a message, which resumes the subagent with its full history. Extension dialogs in a subagent are cancelled for the same reason.
+
+**Is `explore` read-only?**
+
+No. It's told to leave the project as it found it, but it has the same tools as any pi session. Per-type tool lists would be one more thing to configure. To restrict tools, start pi itself with `--tools` or `--exclude-tools`; subagents inherit those limits.
+
+**Can two subagents work on the same files?**
+
+They can, and they can collide: subagents work in your project directory, not a copy, so that your project's settings and trust apply to them. Give parallel subagents separate files, or ask for isolation when you delegate: a `general-purpose` subagent can create a git worktree and work there.
+
+**Can I see what a subagent did?**
+
+Expand its report (Ctrl+O) for the transcript path. `pi --session <path>` opens it; to continue the work yourself, use `pi --fork <path>`, which leaves the original for your agent to resume.
+
+**What happens to running subagents when I quit pi?**
+
+They're stopped. Their ids remain valid when you reopen the session, so your agent can resume them with a message.
+
+## Learn more
+
+- [docs/spec.md](docs/spec.md): exactly how the tools and subagents behave
+- [docs/ux.md](docs/ux.md): what it draws and why
+- [CONTRIBUTING.md](CONTRIBUTING.md): how it works, developing, and releasing
+
+## License
+
+[MIT](LICENSE)

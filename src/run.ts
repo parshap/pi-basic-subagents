@@ -156,7 +156,7 @@ export class Run {
 		proc.stdout!.setEncoding("utf8");
 		proc.stdout!.on("data", (chunk: string) => {
 			buffer += chunk;
-			// Split on LF only: JSON strings may contain U+2028/U+2029 (docs/json.md).
+			// Split on LF only: JSON strings may contain U+2028/U+2029 (pi's docs/json.md).
 			for (let nl = buffer.indexOf("\n"); nl !== -1; nl = buffer.indexOf("\n")) {
 				const line = buffer.slice(0, nl).replace(/\r$/, "");
 				buffer = buffer.slice(nl + 1);

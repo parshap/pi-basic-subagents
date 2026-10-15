@@ -5,7 +5,7 @@ import type { Run } from "./run.ts";
 
 const KEY = "basic-subagents";
 
-/** The Widget (docs/design.md): a live Run line per running subagent, below the editor. */
+/** The Widget (docs/ux.md): a live Run line per running subagent, below the editor. */
 export class Widget {
 	private ui: ExtensionContext["ui"] | undefined;
 	private tui: TUI | undefined;

@@ -1,6 +1,6 @@
-# Design language
+# UX
 
-What pi-basic-subagents draws, and the rules every surface follows. The aim is that a subagent looks the same wherever it appears, and that our output reads like the rest of pi.
+What pi-basic-subagents draws, and the rules every surface follows: its design language. What the tools do is in [spec.md](spec.md). The aim is that a subagent looks the same wherever it appears, and that our output reads like the rest of pi.
 
 ## Principles
 
