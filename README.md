@@ -62,6 +62,24 @@ Optional. Set any of these under `basicSubagents` in `~/.pi/agent/settings.json`
 | `maxConcurrent` | `20` | How many subagents can run at once per session. |
 | `maxDepth` | `1` | How many layers of subagents are allowed below your session. At `1`, subagents can't start their own. |
 
+## Compared to other subagent packages
+
+The most used pi subagent packages, and the example that ships with pi, as of October 2026 ([`pi-subagents`](https://github.com/nicobailon/pi-subagents) 0.78.0, [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) 0.22.0, [`pi-subagent-manager`](https://github.com/championswimmer/pi-subagent-manager) 0.29.1, pi's [`subagent` example](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent) in 1.3.0):
+
+| | pi-basic-subagents | pi-subagents | @tintinweb/pi-subagents | pi-subagent-manager | pi's example |
+|---|---|---|---|---|---|
+| Subagent runs as | its own pi process | inside your pi process (foreground) or a separate runner (background) | inside your pi process | inside your pi process | its own pi process |
+| Gets your extensions, MCP, skills, AGENTS.md | yes | depends on agent and mode | yes; AGENTS.md only in `general-purpose` | your conversation and tools; no skills or AGENTS.md | yes |
+| Setup | none | none (7 built-in agents) | none (3 built-in agents) | none (6 built-in agents) | agent files and symlinks |
+| Custom agents, per-agent tools and model | no | yes | yes | yes | yes |
+| Model-facing tools | 4 | 1 main, plus helpers | 3 | 8 | 1 |
+| Background runs, reports wake your agent | yes | yes | yes | optional | no (blocks) |
+| Steer / stop / resume | yes / yes / yes | yes / yes / except stopped | yes / UI only / up to 10 min after it finishes | yes / yes / yes | no / no / no |
+| Subagent can ask your agent questions | no (reports `blocked:`) | yes | no | no | no |
+| Workflows & orchestration | via codemode | custom scripts, parallel, lanes | custom scripts, parallel, pipelines | nested subagents | parallel, chains |
+| Manage git worktrees | no | yes | yes | no | no |
+| Source lines | ~950 | ~101k | ~21k | ~13k | ~1.1k |
+
 ## FAQ
 
 **Why model the tools on Claude Code's subagent tools?**
