@@ -5,23 +5,18 @@ import { parseArgs } from "@earendil-works/pi-coding-agent";
 import { currentDepth, DEFAULTS, inheritedFlags, resolveConfig } from "../src/config.ts";
 
 test("defaults without settings", () => {
-	assert.deepEqual(resolveConfig(undefined, {}), { config: DEFAULTS, warnings: [] });
+	assert.deepEqual(resolveConfig({}), { config: DEFAULTS, warnings: [] });
 });
 
-test("later settings override earlier ones key by key", () => {
-	const user = { basicSubagents: { maxConcurrent: 5, maxDepth: 2 } };
-	const project = { basicSubagents: { maxDepth: 3 } };
-	assert.deepEqual(resolveConfig(user, project).config, { maxConcurrent: 5, maxDepth: 3 });
+test("settings override defaults key by key", () => {
+	assert.deepEqual(resolveConfig({ basicSubagents: { maxDepth: 3 } }).config, { ...DEFAULTS, maxDepth: 3 });
 });
 
 test("invalid values are ignored with a warning", () => {
-	const { config, warnings } = resolveConfig(
-		{ basicSubagents: { maxConcurrent: 4 } },
-		{ basicSubagents: { maxConcurrent: 0, maxDepth: 1.5 } },
-		{ basicSubagents: "nope" },
-	);
-	assert.deepEqual(config, { maxConcurrent: 4, maxDepth: DEFAULTS.maxDepth });
-	assert.equal(warnings.length, 3);
+	const { config, warnings } = resolveConfig({ basicSubagents: { maxConcurrent: 0, maxDepth: 1.5 } });
+	assert.deepEqual(config, DEFAULTS);
+	assert.equal(warnings.length, 2);
+	assert.equal(resolveConfig({ basicSubagents: "nope" }).warnings.length, 1);
 });
 
 test("maxDepth 0 is allowed", () => {
