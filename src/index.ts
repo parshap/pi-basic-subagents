@@ -9,19 +9,18 @@ import {
 	SessionManager,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { type Static, Type } from "typebox";
 import { type Config, currentDepth, inheritedFlags, resolveConfig } from "./config.ts";
 import { SUBAGENT_TYPES, type SubagentType } from "./prompts.ts";
 import {
 	messageRenderers,
-	type ReportView,
 	renderReportMessage,
 	startRenderers,
 	stopRenderers,
 	Widget,
 	waitRenderers,
 } from "./render.ts";
-import { Run, type RunRecord } from "./run.ts";
+import { Run, type RunRecord, STATUSES } from "./run.ts";
 
 // Session entries, outside the model's context: a run's record at start, then patches with its status changes.
 const ENTRY = "basic-subagent";
@@ -31,20 +30,24 @@ const COMPLETED_EARLIER =
 	"(Finished before this session was reopened. Its report is the last message in the transcript.)";
 const WAKE_TEXT = "Subagent reports arrived above. Continue the task they belong to, or report to the user.";
 
-export interface Report {
-	id: string;
-	status: Run["status"];
-	result?: string;
-	session_path?: string;
-}
+/** A run as the model sees it in wait results and reports; also what the report shapes draw. */
+const reportSchema = Type.Object({
+	id: Type.String(),
+	type: Type.String(),
+	description: Type.String(),
+	status: StringEnum(STATUSES),
+	result: Type.Optional(Type.String()),
+	session_path: Type.Optional(Type.String()),
+});
+export type Report = Static<typeof reportSchema>;
 
-/** A finished run's result, truncated like any pi tool output; the full text stays in the transcript. */
+/** A run's report, with a finished run's result truncated like any pi tool output; the full text stays in the transcript. */
 export function report(run: Run): Report {
-	const { id, status, sessionPath } = run;
-	if (status === "running") return { id, status, session_path: sessionPath };
+	const base = { ...run.view(), session_path: run.sessionPath };
+	if (run.status === "running") return base;
 	const t = truncateHead(run.result);
 	const note = `\n\n[Result truncated to ${t.outputLines} of ${t.totalLines} lines. The full text is the last message in the transcript.]`;
-	return { id, status, result: t.content + (t.truncated ? note : ""), session_path: sessionPath };
+	return { ...base, result: t.content + (t.truncated ? note : "") };
 }
 
 /** Where a session's subagents keep their sessions: in a directory named after its file, so /resume doesn't list them. */
@@ -55,8 +58,8 @@ function childSessionDir(sm: ExtensionContext["sessionManager"]): string {
 		: path.join(getAgentDir(), "sessions", "basic-subagents", sm.getSessionId());
 }
 
-function formatReport(r: Report, run: Run): string {
-	const head = `${r.id} (${run.opts.type}: ${run.opts.description}) ${r.status}`;
+function formatReport(r: Report): string {
+	const head = `${r.id} (${r.type}: ${r.description}) ${r.status}`;
 	const transcript = r.session_path ? `\ntranscript: ${r.session_path}` : "";
 	return `${head}${transcript}${r.result !== undefined ? `\n\n${r.result}` : ""}`;
 }
@@ -85,13 +88,10 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	const widget = new Widget(running);
 	pi.registerMessageRenderer("subagent-report", renderReportMessage);
 
-	/** A report with what the shapes in docs/ux.md show about its run. */
-	const view = (r: Report): ReportView => ({ ...getRun(r.id).view(), ...r });
-
 	/** Empty the outbox into one custom message. */
 	function takeReports() {
-		const reports = outbox.splice(0).map(view);
-		const content = `<subagent_notification>\n${reports.map((r) => formatReport(r, getRun(r.id))).join("\n\n---\n\n")}\n</subagent_notification>`;
+		const reports = outbox.splice(0);
+		const content = `<subagent_notification>\n${reports.map(formatReport).join("\n\n---\n\n")}\n</subagent_notification>`;
 		return { customType: "subagent-report", content, display: true, details: { reports } };
 	}
 
@@ -296,13 +296,6 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			...startRenderers,
 		});
 
-		const reportSchema = Type.Object({
-			id: Type.String(),
-			status: StringEnum(["running", "completed", "failed", "stopped"]),
-			result: Type.Optional(Type.String()),
-			session_path: Type.Optional(Type.String()),
-		});
-
 		pi.registerTool({
 			name: "subagent_wait",
 			label: "Subagent wait",
@@ -339,11 +332,11 @@ export default function basicSubagents(pi: ExtensionAPI) {
 				// With nothing to wait for, list the session's other subagents so finished or interrupted ones aren't missed.
 				const known = [...runs.values()].map((r) => `${r.id} ${r.status}`).join(", ");
 				const none = `No subagents are running.${known && ` Earlier ones: ${known}. Pass their ids for reports.`}`;
-				const text = entries.map((r) => formatReport(r, getRun(r.id))).join("\n\n---\n\n");
+				const text = entries.map(formatReport).join("\n\n---\n\n");
 				return {
 					content: [{ type: "text", text: text || none }],
-					structuredContent: entries as any,
-					details: { reports: entries.map(view) },
+					structuredContent: entries,
+					details: { reports: entries },
 				};
 			},
 			...waitRenderers,
