@@ -1,0 +1,26 @@
+# Release notes from commit subjects (AGENTS.md § Commits). CI runs `git-cliff --latest --strip all`.
+
+[changelog]
+body = """
+{% if not previous.version -%}
+Initial release.
+{% elif commits | length == 0 -%}
+Maintenance release.
+{% else -%}
+{% for commit in commits -%}
+- {{ commit.message | split(pat="\n") | first | trim }}
+{% endfor -%}
+{% endif -%}
+{% if previous.version and version %}
+**Full changelog**: https://github.com/parshap/pi-basic-subagents/compare/{{ previous.version }}...{{ version }}
+{% endif -%}
+"""
+
+[git]
+conventional_commits = false
+tag_pattern = "^v[0-9]"
+commit_parsers = [
+  # Changes that don't affect the published package, and npm version's bump commits.
+  { message = "^(Docs|Tests|CI|Build):", skip = true },
+  { message = "^v?[0-9]+\\.[0-9]+\\.[0-9]+\\s*$", skip = true },
+]

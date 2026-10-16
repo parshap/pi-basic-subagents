@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Prefixes keep these out of the release notes (AGENTS.md § Commits).
+    commit-message:
+      prefix: Build
+    cooldown:
+      default-days: 3
+    ignore:
+      # Types for pi's minimum Node, so code can't use newer APIs.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    groups:
+      dev-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: CI
+    cooldown:
+      default-days: 3
+    groups:
+      actions:
+        patterns: ["*"]
