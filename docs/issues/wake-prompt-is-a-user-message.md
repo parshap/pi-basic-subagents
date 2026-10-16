@@ -19,4 +19,4 @@ Every session that receives a report while idle.
 ## Related
 
 - [spec §3](../spec.md#3-reports)
-- `WAKE_TEXT` and `flush()` in `src/index.ts`
+- `WAKE_TEXT` and `deliver()` in `src/index.ts`

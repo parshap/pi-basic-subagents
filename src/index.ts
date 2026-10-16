@@ -96,17 +96,17 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	}
 
 	/** Hand every undelivered report to the idle parent and wake it; a busy parent gets them when it settles. */
-	async function flush() {
-		if (!session?.isIdle() || outbox.length === 0) return;
-		// Append the reports before waking, so a wake pi rejects loses only the turn, not the reports.
-		pi.sendMessage(takeReports(), { triggerTurn: false });
-		// A user prompt, not sendMessage's triggerTurn, which skips before_agent_start and with it other
-		// extensions' prompt sections. Steer queues it if another prompt starts the run first.
-		pi.sendUserMessage(WAKE_TEXT, { deliverAs: "steer" });
-	}
-
 	function deliver() {
-		flush().catch((err) => session?.ui.notify(`pi-basic-subagents: couldn't deliver reports: ${err}`, "error"));
+		if (!session?.isIdle() || outbox.length === 0) return;
+		try {
+			// Append the reports before waking, so a wake pi rejects loses only the turn, not the reports.
+			pi.sendMessage(takeReports(), { triggerTurn: false });
+			// A user prompt, not sendMessage's triggerTurn, which skips before_agent_start and with it other
+			// extensions' prompt sections. Steer queues it if another prompt starts the run first.
+			pi.sendUserMessage(WAKE_TEXT, { deliverAs: "steer" });
+		} catch (err) {
+			session.ui.notify(`pi-basic-subagents: couldn't deliver reports: ${err}`, "error");
+		}
 	}
 
 	function onSettle(run: Run) {
