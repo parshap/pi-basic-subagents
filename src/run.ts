@@ -1,9 +1,18 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { RunView } from "./render.ts";
 
-export type Status = "running" | "completed" | "failed" | "stopped";
+export const STATUSES = ["running", "completed", "failed", "stopped"] as const;
+export type Status = (typeof STATUSES)[number];
+
+/** One subagent, as every shape in docs/ux.md shows it. `state` is what a running one is doing. */
+export interface RunView {
+	id: string;
+	type: string;
+	description: string;
+	status: Status;
+	state?: string;
+}
 
 /** What identifies a run across parent processes; recorded in the parent session. */
 export interface RunRecord {
