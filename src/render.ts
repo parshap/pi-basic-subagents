@@ -1,17 +1,8 @@
 // The shapes in docs/ux.md. Everything here draws from structured data, never from model-facing text.
 import { pathToFileURL } from "node:url";
-import { getMarkdownTheme, keyText, type Theme } from "@earendil-works/pi-coding-agent";
-import { Box, type Component, hyperlink, Markdown, Spacer, truncateToWidth } from "@earendil-works/pi-tui";
-import type { Status } from "./run.ts";
-
-/** One subagent, as every shape shows it. `state` is what a running one is doing. */
-export interface RunView {
-	id: string;
-	type: string;
-	description: string;
-	status: Status;
-	state?: string;
-}
+import { type ExtensionContext, getMarkdownTheme, keyText, type Theme } from "@earendil-works/pi-coding-agent";
+import { Box, type Component, hyperlink, Markdown, Spacer, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
+import type { Run, RunView, Status } from "./run.ts";
 
 /** A finished (or running) subagent's report, for wait results and report messages. */
 export interface ReportView extends RunView {
@@ -185,4 +176,69 @@ export function renderReportMessage(
 	box.addChild(reportList(reports, options.expanded, theme, "customMessageText"));
 	if (!options.expanded) box.addChild(lines([expandHint(theme)]));
 	return box;
+}
+
+const WIDGET_KEY = "basic-subagents";
+
+/** The Widget (docs/ux.md): a live Run line per running subagent, below the editor. */
+export class Widget {
+	private ui: ExtensionContext["ui"] | undefined;
+	private tui: TUI | undefined;
+	private ticker: NodeJS.Timeout | undefined;
+	private shown = false;
+	private readonly running: () => Run[];
+
+	constructor(running: () => Run[]) {
+		this.running = running;
+	}
+
+	open(ui: ExtensionContext["ui"]) {
+		this.ui = ui;
+		this.refresh();
+	}
+
+	close() {
+		this.ui?.setWidget(WIDGET_KEY, undefined);
+		this.ui = undefined;
+		this.refresh();
+	}
+
+	/** Show or hide it as subagents start and finish; while any run, it redraws every second. */
+	refresh = () => {
+		if (!this.ui || this.running().length === 0) {
+			clearInterval(this.ticker);
+			this.ticker = undefined;
+			if (this.shown) this.ui?.setWidget(WIDGET_KEY, undefined);
+			this.shown = false;
+			this.tui = undefined;
+			return;
+		}
+		this.ticker ??= setInterval(() => this.tui?.requestRender(), 1000).unref();
+		if (this.shown) return this.tui?.requestRender();
+		this.shown = true;
+		this.ui.setWidget(
+			WIDGET_KEY,
+			(tui, theme) => {
+				this.tui = tui;
+				return {
+					render: (width) =>
+						lines(this.running().map((r) => runLine({ ...r.view(), state: state(r) }, theme))).render(width),
+					invalidate() {},
+				};
+			},
+			{ placement: "belowEditor" },
+		);
+	};
+}
+
+function state(r: Run): string {
+	const tokens = r.contextTokens ? ` · ${k(r.contextTokens)} tokens` : "";
+	return `${r.currentTool ?? "thinking"} · ${elapsed(Date.now() - r.startedAt)}${tokens}`;
+}
+
+const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+function elapsed(ms: number): string {
+	const s = Math.floor(ms / 1000);
+	return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`;
 }

@@ -18,10 +18,10 @@ import {
 	renderReportMessage,
 	startRenderers,
 	stopRenderers,
+	Widget,
 	waitRenderers,
 } from "./render.ts";
 import { Run, type RunRecord } from "./run.ts";
-import { Widget } from "./widget.ts";
 
 // Session entries, outside the model's context: a run's record at start, then patches with its status changes.
 const ENTRY = "basic-subagent";
