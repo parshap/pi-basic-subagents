@@ -12,23 +12,20 @@ export interface Config {
 export const DEFAULTS: Config = { maxConcurrent: 20, maxDepth: 1 };
 const MIN: Config = { maxConcurrent: 1, maxDepth: 0 };
 
-/** Merge the `basicSubagents` key of each settings object, later ones winning key by key. */
-export function resolveConfig(...settings: unknown[]): { config: Config; warnings: string[] } {
+/** The `basicSubagents` key of pi's settings (global and trusted project, already merged by pi). */
+export function resolveConfig(settings: unknown): { config: Config; warnings: string[] } {
 	const config = { ...DEFAULTS };
 	const warnings: string[] = [];
-	for (const s of settings) {
-		const section = (s as { basicSubagents?: unknown } | undefined)?.basicSubagents;
-		if (section === undefined) continue;
-		if (typeof section !== "object" || section === null) {
-			warnings.push("basicSubagents must be an object; ignoring it");
-			continue;
-		}
-		for (const key of Object.keys(DEFAULTS) as (keyof Config)[]) {
-			const value = (section as Record<string, unknown>)[key];
-			if (value === undefined) continue;
-			if (Number.isInteger(value) && (value as number) >= MIN[key]) config[key] = value as number;
-			else warnings.push(`basicSubagents.${key} must be an integer >= ${MIN[key]}; ignoring ${JSON.stringify(value)}`);
-		}
+	const section = (settings as { basicSubagents?: unknown } | undefined)?.basicSubagents;
+	if (section === undefined) return { config, warnings };
+	if (typeof section !== "object" || section === null) {
+		return { config, warnings: ["basicSubagents must be an object; ignoring it"] };
+	}
+	for (const key of Object.keys(DEFAULTS) as (keyof Config)[]) {
+		const value = (section as Record<string, unknown>)[key];
+		if (value === undefined) continue;
+		if (Number.isInteger(value) && (value as number) >= MIN[key]) config[key] = value as number;
+		else warnings.push(`basicSubagents.${key} must be an integer >= ${MIN[key]}; ignoring ${JSON.stringify(value)}`);
 	}
 	return { config, warnings };
 }
