@@ -31,7 +31,7 @@ Ask for it in plain words; your agent calls the tools:
 
 Starting a subagent returns right away, and running subagents show live below the editor. When one finishes, its report lands in your conversation and your agent picks it up. Your agent can steer running subagents, or resume finished ones, by sending them messages.
 
-There are two subagent types: `explore` for research, review, and verification, told to leave the project as it found it (an instruction, not a security sandbox), and `general-purpose` for work that changes things. A subagent uses the same model as your agent unless your agent picks another.
+There are two subagent types: `explore` for research, review, and verification, told not to change the project or publish anything (an instruction, not a security sandbox), and `general-purpose` for work that changes things. A subagent uses the same model as your agent unless your agent picks another.
 
 To steer subagent usage and model choices, add guidance to your `AGENTS.md`, for example:
 
@@ -75,7 +75,7 @@ The most used pi subagent packages, and the example that ships with pi, as of Oc
 | Model-facing tools | 4 | 1 main, plus helpers | 3 | 8 | 1 |
 | Background runs, reports wake your agent | yes | yes | yes | optional | no (blocks) |
 | Steer / stop / resume | yes / yes / yes | yes / yes / except stopped | yes / UI only / up to 10 min after it finishes | yes / yes / yes | no / no / no |
-| Subagent can ask your agent questions | no (reports `blocked:`) | yes | no | no | no |
+| Subagent can ask your agent questions | no (stops and reports) | yes | no | no | no |
 | Workflows & orchestration | via codemode | custom scripts, parallel, lanes | custom scripts, parallel, pipelines | nested subagents | parallel, chains |
 | Manage git worktrees | no | yes | yes | no | no |
 | Source lines | ~950 | ~101k | ~21k | ~13k | ~1.1k |
@@ -88,11 +88,11 @@ Many models have seen Claude Code's subagent tools in training, so they already 
 
 **Why one-way communication? What if a subagent gets stuck?**
 
-A subagent works in the background, where nobody is watching to answer questions, and your agent, busy with its own work, is a poor stand-in. So a subagent makes routine judgment calls itself and states its assumptions in its report. At a decision that would change the outcome, it stops and reports `blocked:` with the options. Your agent, or you through it, answers with a message, which resumes the subagent with its full history. Extension dialogs in a subagent are cancelled for the same reason.
+A subagent works in the background, where nobody is watching to answer questions, and your agent, busy with its own work, is a poor stand-in. So a subagent makes routine judgment calls itself and states its assumptions in its report. At a decision that would change the outcome, it stops and reports what needs deciding. Your agent, or you through it, answers with a message, which resumes the subagent with its full history. Extension dialogs in a subagent are cancelled for the same reason.
 
 **Is `explore` read-only?**
 
-No. It's told to leave the project as it found it, but it has the same tools as any pi session. Per-type tool lists would be one more thing to configure. To restrict tools, start pi itself with `--tools` or `--exclude-tools`; subagents inherit those limits.
+No. It's told not to change the project or publish anything, but it has the same tools as any pi session. Read-only work often needs to run code and write temporary files: even scripting a few commands together takes `bash`, and `bash` can edit any file. For enforced limits, use a sandbox or a permission system.
 
 **Can two subagents work on the same files?**
 

@@ -19,7 +19,7 @@ The design principles are in the [README](../README.md#design). Beyond those:
 | `subagent_message` | `id`, `message` | `{ delivered: "steer" \| "resume" }` |
 | `subagent_stop` | `id` | `{ status }`: `"stopped"`, or how it had already finished |
 
-- **Types.** Both types get a role prompt: do the task directly, don't re-delegate, report the answer first with evidence, and stop with `blocked:` at a decision that would change the outcome. `explore` adds that the project must be left as found. That rule is advisory: nothing enforces it.
+- **Types.** Both types get a role prompt: complete the task and end with a concise report of what was done and the findings and evidence, don't undo changes it didn't make (others may share the directory), and make a reasonable guess rather than ask, stopping only when truly stuck. `explore` adds not changing the project or publishing or sending anything. That rule is advisory: nothing enforces it.
 - **Model.** `model` is `provider/id` with an optional `:thinking` suffix. It defaults to the parent's model and thinking level.
 - **Messages.** `subagent_message` steers a running subagent. A finished or stopped one resumes from its session with full history and reports again on completion. A resume counts toward `maxConcurrent`.
 - **Waiting.** Cancelling a wait (Esc, or a codemode script ending) cancels only the wait. With no ids and nothing running, `subagent_wait` lists the session's earlier subagents.

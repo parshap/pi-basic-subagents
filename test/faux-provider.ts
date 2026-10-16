@@ -19,7 +19,7 @@ const text = (content: unknown): string =>
 /** The parent starts a subagent, waits for it, and repeats its report; the subagent answers its brief. */
 function respond(context: TranscriptContext): AssistantMessage {
 	const messages = context.messages as { role: string; content: unknown }[];
-	if (getCurrentSystemPrompt(context.messages).includes("delegated subagent")) {
+	if (getCurrentSystemPrompt(context.messages).includes("You are a subagent")) {
 		const brief = text(messages.find((m) => m.role === "user")?.content);
 		return fauxAssistantMessage(`pong: ${brief}`);
 	}
