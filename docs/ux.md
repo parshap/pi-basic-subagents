@@ -45,13 +45,13 @@ Live Run lines for running subagents, above the editor. No background, no header
 
 One per tool call the parent model makes, drawn inside pi's tool shell.
 
-- **Header** (`renderCall`): the tool name in pi's `toolTitle` bold, then its subject. Collapsed it fits on one line; expanded it shows every argument in full.
+- **Header** (`renderCall`): the tool name in pi's `toolTitle` bold, then its subject. Collapsed it fits on one line; expanded it wraps and shows every argument in full.
 - **Body** (`renderResult`): the outcome. Collapsed is a line or a few Run lines; expanded is the full result.
 
 | Tool | Header, collapsed | Header, expanded | Body, collapsed | Body, expanded |
 |---|---|---|---|---|
 | `subagent_start` | type · description · model, then the first 2 lines of the prompt (muted) | all arguments, the prompt as Markdown | the new Run line | same |
-| `subagent_wait` | the ids (or `all`), the timeout if set | same | a Run line per subagent | each report (see Report block) |
+| `subagent_wait` | the ids (or `all`), the timeout if set | same, wrapped | a Run line per subagent | each report (see Report block) |
 | `subagent_message` | id, then the first line of the message (muted) | the full message | `delivered as steer` or `delivered as resume` | same |
 | `subagent_stop` | id | same | the Run line with its status | same |
 
