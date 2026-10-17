@@ -5,8 +5,8 @@ What pi-basic-subagents draws, and the rules every surface follows: its design l
 ## Principles
 
 - **Pi owns the frame.** We never choose a background. Tool blocks use pi's tool shell, and reports use pi's custom-message background, so each item looks like every other item of its kind.
-- **Color means status.** Only a subagent's status, and the Bar marking a started subagent, are colored. Everything else is plain text, muted, or dim.
-- **One line per subagent.** Wherever a subagent is listed (widget, wait results, reports), it's the same Run line.
+- **Color means status.** Only a subagent's status is colored. Everything else is plain text, muted, or dim.
+- **One line per subagent.** Wherever a subagent is listed (widget, wait results, reports), it's the same Run line; the widget leaves out the type.
 - **Collapsed is a summary, expanded is everything.** Collapsed views are single lines cut to the width; expanded views show the full input or output. Expansion follows pi's global toggle (Ctrl+O), plus a click where pi provides one.
 - **Content is for the model, details are for rendering.** Renderers draw from structured `details` and tool arguments, never by parsing the text the model reads. That text must stand on its own in print, JSON, and RPC modes, where nothing is rendered.
 - **Theme tokens only.** No literal colors, and no text left in the terminal's default color, so light and dark themes work.
@@ -26,15 +26,20 @@ The atom: one subagent on one line.
 
 - **id** bold, **type** muted, **description** text.
 - **state** is what the subagent is doing while it runs (current tool or `thinking`, elapsed, its context size in tokens), and its status word once it's done.
-- Cut to the width with `…`; never wraps.
+- Cut to the width with a `muted` `…`; never wraps.
 
 ### Widget
 
-Live Run lines for running subagents, below the editor. No background, no header. Present only while a subagent runs; it's the only live surface.
+Live Run lines for running subagents, above the editor. No background, no header. Present only while a subagent runs; it's the only live surface.
 
-### Bar
+```
+● sa-1a2b · Audit auth flow · opus-4-1:high · bash npm test --wat… · 1m12s · 48.3k tokens
+```
 
-An `accent` `▌` before every line of a tool block whose call started or resumed a subagent: `subagent_start`, and `subagent_message` when it resumed. Starting a subagent has a bigger side effect than other calls (a new process that works on its own), and the bar marks it without leaving pi's frame. A call that failed has no bar.
+- **No type.** The line is for watching activity; the type is in the `subagent_start` block.
+- **The model's short name** starts the state: the id and thinking level without the provider path and the parts that rarely tell two models apart (dated snapshots, `-latest`, `claude-` before a family name, and Bedrock's region, vendor, and version). It's a display heuristic, and each rule applies only where it can't mangle a name, so some names stay long: `deepseek.v3`, not `v3`.
+- **The current tool's arguments** follow its name: string arguments on one line, `path` first. They take only the width the rest of the line leaves, so they never push anything off, and they're left out when fewer than 3 columns are free besides the space before them. Control characters show escaped (`\x1b`), so arguments can't drive the terminal. With parallel calls, it's the latest one still running.
+- The tool name is part of the muted state here, not `toolTitle`.
 
 ### Tool block
 
@@ -45,9 +50,9 @@ One per tool call the parent model makes, drawn inside pi's tool shell.
 
 | Tool | Header, collapsed | Header, expanded | Body, collapsed | Body, expanded |
 |---|---|---|---|---|
-| `subagent_start` (with the Bar) | type · description · model, then the first 2 lines of the prompt (muted) | all arguments, the prompt as Markdown | the new Run line | same |
+| `subagent_start` | type · description · model, then the first 2 lines of the prompt (muted) | all arguments, the prompt as Markdown | the new Run line | same |
 | `subagent_wait` | the ids (or `all`), the timeout if set | same | a Run line per subagent | each report (see Report block) |
-| `subagent_message` (with the Bar if it resumed) | id, then the first line of the message (muted) | the full message | `delivered as steer` or `delivered as resume` | same |
+| `subagent_message` | id, then the first line of the message (muted) | the full message | `delivered as steer` or `delivered as resume` | same |
 | `subagent_stop` | id | same | the Run line with its status | same |
 
 ### Report block
@@ -80,8 +85,6 @@ Not ours to style: a fixed, short user message that starts the parent's turn whe
 Pi applies these; we only pick the shape. A tool block's background is about the tool call, not the subagent: a `subagent_wait` that returns a failed subagent still succeeded.
 
 ### Status
-
-Besides status, `accent` marks only the Bar.
 
 | Status | Glyph | Color |
 |---|---|---|

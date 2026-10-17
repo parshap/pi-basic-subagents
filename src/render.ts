@@ -1,7 +1,17 @@
 // The shapes in docs/ux.md. Everything here draws from structured data, never from model-facing text.
 import { pathToFileURL } from "node:url";
 import { type ExtensionContext, getMarkdownTheme, keyText, type Theme } from "@earendil-works/pi-coding-agent";
-import { Box, type Component, hyperlink, Markdown, Spacer, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+	Box,
+	type Component,
+	hyperlink,
+	Markdown,
+	Spacer,
+	stripTerminalSequences,
+	type TUI,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import type { Run, RunView, Status } from "./run.ts";
 
 /** A finished (or running) subagent's report, for wait results and report messages. */
@@ -22,12 +32,15 @@ export function runLine(v: RunView, theme: Theme): string {
 	const { glyph, color } = STATUS[v.status];
 	const sep = theme.fg("muted", " · ");
 	const state = v.status === "running" && v.state ? theme.fg("muted", v.state) : theme.fg(color, v.status);
-	return `${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))} ${theme.fg("muted", v.type)}${sep}${theme.fg("text", v.description)}${sep}${state}`;
+	const type = v.type ? ` ${theme.fg("muted", v.type)}` : "";
+	return `${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))}${type}${sep}${theme.fg("text", v.description)}${sep}${state}`;
 }
 
 /** Lines that are cut to the width, never wrapped. */
-export function lines(texts: string[]): Component {
-	return { render: (width) => texts.map((t) => truncateToWidth(t, width, "…")), invalidate() {} };
+export function lines(texts: string[], theme: Theme): Component {
+	// Styled: truncateToWidth resets the color before the ellipsis.
+	const ellipsis = theme.fg("muted", "…");
+	return { render: (width) => texts.map((t) => truncateToWidth(t, width, ellipsis)), invalidate() {} };
 }
 
 function stack(children: Component[]): Component {
@@ -44,15 +57,6 @@ type BodyColor = "toolOutput" | "customMessageText";
 
 const markdown = (text: string, theme: Theme, color: BodyColor) =>
 	new Markdown(text, 0, 0, getMarkdownTheme(), { color: (t) => theme.fg(color, t) });
-
-/** The accent bar marking a call that started or resumed a subagent. */
-export function barred(child: Component, theme: Theme): Component {
-	const bar = `${theme.fg("accent", "▌")} `;
-	return {
-		render: (width) => child.render(Math.max(1, width - 2)).map((line) => bar + line),
-		invalidate: () => child.invalidate(),
-	};
-}
 
 const title = (name: string, theme: Theme) => theme.fg("toolTitle", theme.bold(name));
 const firstLines = (text: string, n: number) =>
@@ -71,15 +75,19 @@ function expandHint(theme: Theme): string {
 
 /** A report's full view: its Run line, transcript link, and result. */
 function reportSection(r: ReportView, theme: Theme, color: BodyColor): Component {
-	const parts: Component[] = [lines([runLine(r, theme)])];
+	const parts: Component[] = [lines([runLine(r, theme)], theme)];
 	if (r.session_path)
-		parts.push(lines([theme.fg("muted", hyperlink(r.session_path, pathToFileURL(r.session_path).href))]));
+		parts.push(lines([theme.fg("muted", hyperlink(r.session_path, pathToFileURL(r.session_path).href))], theme));
 	if (r.result) parts.push(new Spacer(1), markdown(r.result, theme, color));
 	return stack(parts);
 }
 
 function reportList(reports: ReportView[], expanded: boolean, theme: Theme, color: BodyColor): Component {
-	if (!expanded) return lines(reports.map((r) => runLine(r, theme)));
+	if (!expanded)
+		return lines(
+			reports.map((r) => runLine(r, theme)),
+			theme,
+		);
 	const sections = reports.map((r) => reportSection(r, theme, color));
 	return stack(sections.flatMap((section, i) => (i > 0 ? [new Spacer(1), section] : [section])));
 }
@@ -87,11 +95,14 @@ function reportList(reports: ReportView[], expanded: boolean, theme: Theme, colo
 /** A tool result without our details (an error, or a session from before them): its text as is. */
 function textResult(result: { content: { type: string; text?: string }[] }, theme: Theme): Component {
 	const text = result.content.map((c) => c.text ?? "").join("\n");
-	return lines(text.split("\n").map((l) => theme.fg("toolOutput", l)));
+	return lines(
+		text.split("\n").map((l) => theme.fg("toolOutput", l)),
+		theme,
+	);
 }
 
 type Result<D> = { content: { type: string; text?: string }[]; details?: D };
-type Ctx = { expanded: boolean; isError: boolean; state: Record<string, unknown>; invalidate(): void };
+type Ctx = { expanded: boolean };
 
 export const startRenderers = {
 	renderCall(
@@ -108,13 +119,17 @@ export const startRenderers = {
 		const prompt = args.prompt ?? "";
 		const body = ctx.expanded
 			? [new Spacer(1), markdown(prompt, theme, "toolOutput")]
-			: [lines(firstLines(prompt, 2).map((l) => theme.fg("muted", l)))];
-		const call = stack([lines([head.join(sep)]), ...body]);
-		return ctx.isError ? call : barred(call, theme);
+			: [
+					lines(
+						firstLines(prompt, 2).map((l) => theme.fg("muted", l)),
+						theme,
+					),
+				];
+		return stack([lines([head.join(sep)], theme), ...body]);
 	},
 	renderResult(result: Result<{ run: RunView }>, _opts: unknown, theme: Theme) {
 		if (!result.details?.run) return textResult(result, theme);
-		return barred(lines([runLine(result.details.run, theme)]), theme);
+		return lines([runLine(result.details.run, theme)], theme);
 	},
 };
 
@@ -122,7 +137,7 @@ export const waitRenderers = {
 	renderCall(args: { ids?: string[]; timeout_ms?: number }, theme: Theme) {
 		const ids = args.ids?.length ? args.ids.join(", ") : "all";
 		const timeout = args.timeout_ms !== undefined ? theme.fg("muted", ` · timeout ${args.timeout_ms / 1000}s`) : "";
-		return lines([`${title("subagent_wait", theme)} ${theme.fg("text", ids)}${timeout}`]);
+		return lines([`${title("subagent_wait", theme)} ${theme.fg("text", ids)}${timeout}`], theme);
 	},
 	renderResult(result: Result<{ reports: ReportView[] }>, _opts: unknown, theme: Theme, ctx: Ctx) {
 		const reports = result.details?.reports;
@@ -135,32 +150,24 @@ export const messageRenderers = {
 	renderCall(args: { id?: string; message?: string }, theme: Theme, ctx: Ctx) {
 		const message = args.message ?? "";
 		const head = `${title("subagent_message", theme)} ${theme.fg("text", args.id ?? "")}`;
-		const call = ctx.expanded
-			? stack([lines([head]), new Spacer(1), markdown(message, theme, "toolOutput")])
-			: lines([head, ...firstLines(message, 1).map((l) => theme.fg("muted", l))]);
-		// The result tells whether it resumed the subagent; renderResult records it and redraws.
-		return ctx.state.resumed ? barred(call, theme) : call;
+		return ctx.expanded
+			? stack([lines([head], theme), new Spacer(1), markdown(message, theme, "toolOutput")])
+			: lines([head, ...firstLines(message, 1).map((l) => theme.fg("muted", l))], theme);
 	},
-	renderResult(result: Result<{ delivered: "steer" | "resume" }>, _opts: unknown, theme: Theme, ctx: Ctx) {
+	renderResult(result: Result<{ delivered: "steer" | "resume" }>, _opts: unknown, theme: Theme) {
 		const delivered = result.details?.delivered;
 		if (!delivered) return textResult(result, theme);
-		const resumed = delivered === "resume";
-		if (resumed !== Boolean(ctx.state.resumed)) {
-			ctx.state.resumed = resumed;
-			queueMicrotask(ctx.invalidate); // Not mid-render: pi is still drawing this block.
-		}
-		const body = lines([theme.fg("muted", `delivered as ${delivered}`)]);
-		return resumed ? barred(body, theme) : body;
+		return lines([theme.fg("muted", `delivered as ${delivered}`)], theme);
 	},
 };
 
 export const stopRenderers = {
 	renderCall(args: { id?: string }, theme: Theme) {
-		return lines([`${title("subagent_stop", theme)} ${theme.fg("text", args.id ?? "")}`]);
+		return lines([`${title("subagent_stop", theme)} ${theme.fg("text", args.id ?? "")}`], theme);
 	},
 	renderResult(result: Result<{ run: RunView }>, _opts: unknown, theme: Theme) {
 		if (!result.details?.run) return textResult(result, theme);
-		return lines([runLine(result.details.run, theme)]);
+		return lines([runLine(result.details.run, theme)], theme);
 	},
 };
 
@@ -174,13 +181,13 @@ export function renderReportMessage(
 	if (!reports?.length) return undefined; // pi's default rendering of the text.
 	const box = new Box(options.outputPad, 1, (t) => theme.bg("customMessageBg", t));
 	box.addChild(reportList(reports, options.expanded, theme, "customMessageText"));
-	if (!options.expanded) box.addChild(lines([expandHint(theme)]));
+	if (!options.expanded) box.addChild(lines([expandHint(theme)], theme));
 	return box;
 }
 
 const WIDGET_KEY = "basic-subagents";
 
-/** The Widget (docs/ux.md): a live Run line per running subagent, below the editor. */
+/** The Widget (docs/ux.md): a live Run line per running subagent, above the editor. */
 export class Widget {
 	private ui: ExtensionContext["ui"] | undefined;
 	private tui: TUI | undefined;
@@ -216,24 +223,78 @@ export class Widget {
 		this.ticker ??= setInterval(() => this.tui?.requestRender(), 1000).unref();
 		if (this.shown) return this.tui?.requestRender();
 		this.shown = true;
-		this.ui.setWidget(
-			WIDGET_KEY,
-			(tui, theme) => {
-				this.tui = tui;
-				return {
-					render: (width) =>
-						lines(this.running().map((r) => runLine({ ...r.view(), state: state(r) }, theme))).render(width),
-					invalidate() {},
-				};
-			},
-			{ placement: "belowEditor" },
-		);
+		this.ui.setWidget(WIDGET_KEY, (tui, theme) => {
+			this.tui = tui;
+			return {
+				render: (width) =>
+					lines(
+						this.running().map((r) => widgetLine(r, width, theme)),
+						theme,
+					).render(width),
+				invalidate() {},
+			};
+		});
 	};
 }
 
-function state(r: Run): string {
+/** A widget Run line: the current tool's arguments get only the width the rest leaves free. */
+export function widgetLine(r: Run, width: number, theme: Theme): string {
+	const line = (args?: string) => runLine({ ...r.view(), type: "", state: state(r, args) }, theme);
+	const base = line();
+	const free = width - visibleWidth(base) - 1; // 1 for the space before the arguments.
+	const args = free >= 3 ? argsText(r.currentTool?.args, free + 1) : "";
+	// Stripped: truncateToWidth's reset would end the muted color. args has no escapes of its own left.
+	return args ? line(stripTerminalSequences(truncateToWidth(args, free, "…"))) : base;
+}
+
+/**
+ * About `max` characters of the string arguments on one line: `path` first, then the rest (e.g. edit's
+ * text). Reads only that much of each string, so huge arguments cost nothing; control characters are
+ * escaped so they print instead of driving the terminal.
+ */
+function argsText(args: unknown, max: number): string {
+	let out = "";
+	let cut = false; // Collapsing whitespace can leave it short of `max` with more unread.
+	// Deep enough for edit's `edits[i].newText`; a cap so nested arguments can't overflow the stack.
+	const add = (v: unknown, depth = 0) => {
+		if (out.length >= max) cut = true;
+		else if (typeof v === "string") {
+			cut ||= v.length > max - out.length;
+			out = `${out} ${v.slice(0, max - out.length)}`.replace(/\s+/g, " ").trimStart();
+		} else if (v && typeof v === "object" && depth < 3) for (const x of Object.values(v)) add(x, depth + 1);
+	};
+	const { path, ...rest } = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+	add(path);
+	add(rest);
+	const text = out.trim().replace(/\p{Cc}/gu, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+	return cut && text ? `${text}…` : text;
+}
+
+function state(r: Run, args?: string): string {
 	const tokens = r.contextTokens ? ` · ${k(r.contextTokens)} tokens` : "";
-	return `${r.currentTool ?? "thinking"} · ${elapsed(Date.now() - r.startedAt)}${tokens}`;
+	const model = r.opts.model ? `${shortModel(r.opts.model)} · ` : "";
+	return `${model}${r.currentTool ? `${r.currentTool.name}${args ? ` ${args}` : ""}` : "thinking"} · ${elapsed(Date.now() - r.startedAt)}${tokens}`;
+}
+
+const THINKING = /:(off|minimal|low|medium|high|xhigh|max)$/;
+
+/**
+ * `provider/id:thinking` shortened for display. Each rule is scoped to ids it can't mangle: a long name
+ * beats a wrong one.
+ */
+export function shortModel(model: string): string {
+	const thinking = model.match(THINKING)?.[0] ?? "";
+	const full = model.slice(0, model.length - thinking.length);
+	let id = full.slice(full.lastIndexOf("/") + 1); // Provider, org, and gateway paths.
+	if (full.startsWith("amazon-bedrock/"))
+		id = id
+			.replace(/^([a-z-]+\.){1,2}(?=[a-z]{2})/, "") // Region and vendor (`us.anthropic.`), but not `deepseek.v3`.
+			.replace(/-v\d+:\d+$/, ""); // Version: `-v1:0`.
+	id = id
+		.replace(/-(\d{8}|\d{4}-\d{2}-\d{2})$/, "") // A dated snapshot of an alias.
+		.replace(/-latest$/, "")
+		.replace(/^claude-(?=[a-z])/, ""); // `opus-4-5`, but not `3-opus`.
+	return (id || full) + thinking;
 }
 
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));

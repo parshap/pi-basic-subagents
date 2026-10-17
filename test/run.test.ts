@@ -111,3 +111,14 @@ test("a resume racing a stop isn't stopped by it, and the stopped launch's pendi
 	await run.stop();
 	assert.equal(await resumed, "resume");
 });
+
+test("the current tool is the latest call still running", () => {
+	const { run } = fakeRun();
+	const event = (e: object) => (run as any).handle(JSON.stringify(e), new Map(), true);
+	event({ type: "tool_execution_start", toolCallId: "a", toolName: "read", args: {} });
+	event({ type: "tool_execution_start", toolCallId: "b", toolName: "bash", args: {} });
+	event({ type: "tool_execution_end", toolCallId: "b" });
+	assert.equal(run.currentTool?.name, "read");
+	event({ type: "tool_execution_end", toolCallId: "a" });
+	assert.equal(run.currentTool, undefined);
+});

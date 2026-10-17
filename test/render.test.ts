@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { messageRenderers, renderReportMessage, runLine, startRenderers, waitRenderers } from "../src/render.ts";
+import {
+	lines,
+	messageRenderers,
+	renderReportMessage,
+	runLine,
+	shortModel,
+	startRenderers,
+	waitRenderers,
+	widgetLine,
+} from "../src/render.ts";
 
 initTheme();
 // Plain text, so assertions read the layout, not the colors.
 const theme = { fg: (_: string, t: string) => t, bg: (_: string, t: string) => t, bold: (t: string) => t } as any;
-const ctx = (over: object = {}) => ({ expanded: false, isError: false, state: {}, invalidate() {}, ...over }) as any;
+const ctx = (over: object = {}) => ({ expanded: false, ...over }) as any;
 const draw = (c: { render(w: number): string[] } | undefined, width = 80) => c!.render(width).map((l) => l.trimEnd());
 
 const run = { id: "sa-1a2b", type: "explore", description: "Audit auth", status: "running" as const };
@@ -14,9 +23,10 @@ const run = { id: "sa-1a2b", type: "explore", description: "Audit auth", status:
 test("a Run line shows a running subagent's activity, and a finished one's status", () => {
 	assert.equal(runLine({ ...run, state: "bash · 12s" }, theme), "● sa-1a2b explore · Audit auth · bash · 12s");
 	assert.equal(runLine({ ...run, status: "failed" }, theme), "✗ sa-1a2b explore · Audit auth · failed");
+	assert.equal(runLine({ ...run, type: "", state: "bash · 12s" }, theme), "● sa-1a2b · Audit auth · bash · 12s");
 });
 
-test("a subagent_start block shows its arguments and a prompt preview behind the bar, and the full prompt expanded", () => {
+test("a subagent_start block shows its arguments and a prompt preview, and the full prompt expanded", () => {
 	const args = {
 		subagent_type: "explore",
 		description: "Audit auth",
@@ -24,19 +34,15 @@ test("a subagent_start block shows its arguments and a prompt preview behind the
 		prompt: "Line one\nLine two\nLine three",
 	};
 	assert.deepEqual(draw(startRenderers.renderCall(args, theme, ctx())), [
-		"▌ subagent_start explore · Audit auth · openai/gpt-6-luna:low",
-		"▌ Line one",
-		"▌ Line two",
+		"subagent_start explore · Audit auth · openai/gpt-6-luna:low",
+		"Line one",
+		"Line two",
 	]);
 	assert.ok(
 		draw(startRenderers.renderCall(args, theme, ctx({ expanded: true }))).some((l) => l.includes("Line three")),
 	);
-	assert.equal(
-		draw(startRenderers.renderCall(args, theme, ctx({ isError: true })))[0],
-		"subagent_start explore · Audit auth · openai/gpt-6-luna:low",
-	);
 	assert.deepEqual(draw(startRenderers.renderResult({ content: [], details: { run } }, {}, theme)), [
-		"▌ ● sa-1a2b explore · Audit auth · running",
+		"● sa-1a2b explore · Audit auth · running",
 	]);
 });
 
@@ -52,19 +58,24 @@ test("a subagent_wait block lists Run lines, and full reports expanded", () => {
 	assert.deepEqual(draw(waitRenderers.renderResult(none, {}, theme, ctx())), ["No subagents are running."]);
 });
 
-test("a subagent_message block gets the bar once its result says it resumed the subagent", async () => {
-	const c = ctx();
-	let redraws = 0;
-	c.invalidate = () => redraws++;
+test("a subagent_message block shows the message, and how it was delivered", () => {
 	const args = { id: "sa-1a2b", message: "Also check b.txt" };
-	assert.deepEqual(draw(messageRenderers.renderCall(args, theme, c)), ["subagent_message sa-1a2b", "Also check b.txt"]);
-	assert.deepEqual(
-		draw(messageRenderers.renderResult({ content: [], details: { delivered: "resume" } }, {}, theme, c)),
-		["▌ delivered as resume"],
+	assert.deepEqual(draw(messageRenderers.renderCall(args, theme, ctx())), [
+		"subagent_message sa-1a2b",
+		"Also check b.txt",
+	]);
+	assert.deepEqual(draw(messageRenderers.renderResult({ content: [], details: { delivered: "resume" } }, {}, theme)), [
+		"delivered as resume",
+	]);
+});
+
+test("a cut line ends in a muted ellipsis, not the default color", () => {
+	const dim = { ...theme, fg: (c: string, t: string) => (c === "muted" ? `\x1b[2m${t}\x1b[22m` : t) };
+	assert.ok(
+		lines(["x".repeat(20)], dim)
+			.render(10)[0]
+			.includes("\x1b[2m…"),
 	);
-	await Promise.resolve();
-	assert.equal(redraws, 1);
-	assert.equal(draw(messageRenderers.renderCall(args, theme, c))[0], "▌ subagent_message sa-1a2b");
 });
 
 test("a Report block is one Run line per report until expanded", () => {
@@ -79,4 +90,45 @@ test("a Report block is one Run line per report until expanded", () => {
 		),
 	);
 	assert.equal(renderReportMessage({}, { expanded: false, outputPad: 1 }, theme), undefined);
+});
+
+test("the widget's tool arguments fill only the free width", () => {
+	const r = {
+		view: () => run,
+		opts: { model: "anthropic/claude-opus-5-5:high" },
+		currentTool: { name: "bash", args: { command: "npm  test\n--watch", timeout: 300 } },
+		startedAt: Date.now(),
+		contextTokens: 0,
+	} as any;
+	const bare = "● sa-1a2b · Audit auth · opus-5-5:high · bash · 0s";
+	assert.equal(widgetLine(r, 200, theme), "● sa-1a2b · Audit auth · opus-5-5:high · bash npm test --watch · 0s");
+	assert.equal(widgetLine(r, bare.length + 5, theme), "● sa-1a2b · Audit auth · opus-5-5:high · bash npm… · 0s");
+	assert.equal(widgetLine(r, bare.length + 4, theme), "● sa-1a2b · Audit auth · opus-5-5:high · bash np… · 0s");
+	assert.equal(widgetLine(r, bare.length + 3, theme), bare);
+	const tool = (args: unknown) => widgetLine({ ...r, currentTool: { name: "edit", args } }, 200, theme);
+	assert.match(tool({ edits: [{ oldText: "a", newText: "b" }], path: "src/x.ts" }), / edit src\/x\.ts a b · /);
+	assert.match(tool({ command: "echo \x1b[99C\x07hi" }), / edit echo \\x1b\[99C\\x07hi · /);
+	const fit = widgetLine(
+		{ ...r, currentTool: { name: "bash", args: { command: "abc", timeout: 300 } } },
+		bare.length + 4,
+		theme,
+	);
+	assert.equal(fit, "● sa-1a2b · Audit auth · opus-5-5:high · bash abc · 0s");
+	const nested = JSON.parse(`${"[".repeat(20_000)}"deep"${"]".repeat(20_000)}`);
+	assert.doesNotThrow(() => tool({ nested }));
+	const huge = tool({ content: "y".repeat(10_000_000) });
+	assert.ok(huge.length <= 200 && huge.includes("yyy…"));
+});
+
+test("a model's short name drops what rarely tells models apart", () => {
+	assert.equal(shortModel("anthropic/claude-opus-5-5:high"), "opus-5-5:high");
+	assert.equal(shortModel("amazon-bedrock/us.anthropic.claude-opus-4-1-20250805-v1:0:high"), "opus-4-1:high");
+	assert.equal(shortModel("openai/gpt-4o-2024-11-20"), "gpt-4o");
+	assert.equal(shortModel("openai/gpt-5.2-chat-latest:low"), "gpt-5.2-chat:low");
+	assert.equal(shortModel("huggingface/deepseek-ai/DeepSeek-R1-0528:max"), "DeepSeek-R1-0528:max");
+	// Kept where shortening would mangle the name.
+	assert.equal(shortModel("amazon-bedrock/deepseek.v3-v1:0:high"), "deepseek.v3:high");
+	assert.equal(shortModel("amazon-bedrock/us.deepseek.v3.2"), "deepseek.v3.2");
+	assert.equal(shortModel("together/black-forest-labs/flux.2-pro"), "flux.2-pro");
+	assert.equal(shortModel("anthropic/claude-3-opus"), "claude-3-opus");
 });
