@@ -11,6 +11,7 @@ import {
 	type TUI,
 	truncateToWidth,
 	visibleWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { Run, RunView, Status } from "./run.ts";
 
@@ -42,6 +43,14 @@ export function lines(texts: string[], theme: Theme): Component {
 	const ellipsis = theme.fg("muted", "…");
 	return { render: (width) => texts.map((t) => truncateToWidth(t, width, ellipsis)), invalidate() {} };
 }
+
+/** Lines wrapped to the width, for expanded views that show everything. */
+function wrapped(text: string): Component {
+	return { render: (width) => wrapTextWithAnsi(text, width), invalidate() {} };
+}
+
+/** A tool block's header: one cut line collapsed, wrapped in full expanded. */
+const header = (text: string, theme: Theme, ctx: Ctx) => (ctx.expanded ? wrapped(text) : lines([text], theme));
 
 function stack(children: Component[]): Component {
 	return {
@@ -125,7 +134,7 @@ export const startRenderers = {
 						theme,
 					),
 				];
-		return stack([lines([head.join(sep)], theme), ...body]);
+		return stack([header(head.join(sep), theme, ctx), ...body]);
 	},
 	renderResult(result: Result<{ run: RunView }>, _opts: unknown, theme: Theme) {
 		if (!result.details?.run) return textResult(result, theme);
@@ -134,10 +143,10 @@ export const startRenderers = {
 };
 
 export const waitRenderers = {
-	renderCall(args: { ids?: string[]; timeout_ms?: number }, theme: Theme) {
+	renderCall(args: { ids?: string[]; timeout_ms?: number }, theme: Theme, ctx: Ctx) {
 		const ids = args.ids?.length ? args.ids.join(", ") : "all";
 		const timeout = args.timeout_ms !== undefined ? theme.fg("muted", ` · timeout ${args.timeout_ms / 1000}s`) : "";
-		return lines([`${title("subagent_wait", theme)} ${theme.fg("text", ids)}${timeout}`], theme);
+		return header(`${title("subagent_wait", theme)} ${theme.fg("text", ids)}${timeout}`, theme, ctx);
 	},
 	renderResult(result: Result<{ reports: ReportView[] }>, _opts: unknown, theme: Theme, ctx: Ctx) {
 		const reports = result.details?.reports;
