@@ -66,7 +66,8 @@ export class Run {
 	status: Status = "running";
 	result = "";
 	sessionPath: string | undefined;
-	currentTool: string | undefined;
+	/** Tool calls in flight, by call id; pi runs a message's tool calls in parallel. */
+	readonly tools = new Map<string, { name: string; args: unknown }>();
 	startedAt = Date.now();
 	/** The child's context size after its latest model response. */
 	contextTokens = 0;
@@ -91,6 +92,11 @@ export class Run {
 
 	constructor(opts: RunOptions) {
 		this.opts = opts;
+	}
+
+	/** The latest tool call still running. */
+	get currentTool() {
+		return [...this.tools.values()].at(-1);
 	}
 
 	get id() {
@@ -271,10 +277,10 @@ export class Run {
 				if (DIALOGS.has(event.method)) this.write({ type: "extension_ui_response", id: event.id, cancelled: true });
 				break;
 			case "tool_execution_start":
-				this.currentTool = event.toolName;
+				this.tools.set(event.toolCallId, { name: event.toolName, args: event.args });
 				break;
 			case "tool_execution_end":
-				this.currentTool = undefined;
+				this.tools.delete(event.toolCallId);
 				break;
 			case "message_end":
 				if (event.message?.role !== "assistant") break;
@@ -321,7 +327,7 @@ export class Run {
 		if (this.status !== "running") return;
 		this.status = status;
 		this.result = result;
-		this.currentTool = undefined;
+		this.tools.clear();
 		// The process lives only while a run is active; closing stdin lets it exit cleanly.
 		this.proc?.stdin?.end();
 		void reap(this.proc, this.exited, EXIT_GRACE_MS);

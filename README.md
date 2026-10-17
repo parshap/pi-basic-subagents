@@ -3,8 +3,8 @@
 Minimal subagents for [pi](https://pi.dev), where each subagent is a regular pi session with the same tools and access as your agent, rather than task-specific restricted subagents.
 
 ```
-● sa-1a2b explore · Audit auth flow · bash · 1m12s
-● sa-3c4d general-purpose · Fix flaky upload test · thinking · 24s
+● sa-1a2b · Audit auth flow · opus-5-5:high · bash rg -n "session" src/auth · 1m12s · 48.3k tokens
+● sa-3c4d · Fix flaky upload test · gpt-6-luna:max · thinking · 24s · 12.1k tokens
 ```
 
 ## Design
@@ -29,7 +29,7 @@ Ask for it in plain words; your agent calls the tools:
 
 > Have two subagents review this work, one using Opus and one using GPT, and compare what they find.
 
-Starting a subagent returns right away, and running subagents show live below the editor. When one finishes, its report lands in your conversation and your agent picks it up. Your agent can steer running subagents, or resume finished ones, by sending them messages.
+Starting a subagent returns right away, and running subagents show live above the editor. When one finishes, its report lands in your conversation and your agent picks it up. Your agent can steer running subagents, or resume finished ones, by sending them messages.
 
 There are two subagent types: `explore` for research, review, and verification, told not to change the project or publish anything (an instruction, not a security sandbox), and `general-purpose` for work that changes things. A subagent uses the same model as your agent unless your agent picks another.
 
