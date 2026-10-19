@@ -13,7 +13,7 @@ import {
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import type { Run, RunView, Status } from "./run.ts";
+import { type Run, type RunView, STATUSES, type Status } from "./run.ts";
 
 /** A finished (or running) subagent's report, for wait results and report messages. */
 export interface ReportView extends RunView {
@@ -235,15 +235,34 @@ export class Widget {
 		this.ui.setWidget(WIDGET_KEY, (tui, theme) => {
 			this.tui = tui;
 			return {
-				render: (width) =>
-					lines(
-						this.runs().map((r) => widgetLine(r, width, theme)),
-						theme,
-					).render(width),
+				render: (width) => lines(widgetLines(this.runs(), width, theme), theme).render(width),
 				invalidate() {},
 			};
 		});
 	};
+}
+
+const WIDGET_MAX = 5;
+
+/**
+ * The widget's lines: past WIDGET_MAX, 4 rows in start order, preferring running subagents over finished
+ * ones, then a count of the rest by status.
+ */
+export function widgetLines(runs: Run[], width: number, theme: Theme): string[] {
+	if (runs.length <= WIDGET_MAX) return runs.map((r) => widgetLine(r, width, theme));
+	const live = runs.filter((r) => r.status === "running");
+	const picked = new Set([...live, ...runs.filter((r) => !live.includes(r))].slice(0, WIDGET_MAX - 1));
+	const rest = runs.filter((r) => !picked.has(r));
+	const sep = theme.fg("muted", " · ");
+	// At most three counts (stopped runs never show), short enough that a failure fits at usual widths.
+	const counts = STATUSES.flatMap((s) => {
+		const n = rest.filter((r) => r.status === s).length;
+		return n ? [`${theme.fg(STATUS[s].color, STATUS[s].glyph)} ${theme.fg("muted", `${n} ${s}`)}`] : [];
+	});
+	return [
+		...runs.filter((r) => picked.has(r)).map((r) => widgetLine(r, width, theme)),
+		[theme.fg("muted", `+${rest.length} more`), ...counts].join(sep),
+	];
 }
 
 /** A widget Run line: the current tool's arguments get only the width the rest leaves free. */
