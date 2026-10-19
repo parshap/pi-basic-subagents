@@ -24,7 +24,7 @@ const run = { id: "sa-1a2b", type: "explore", description: "Audit auth", status:
 test("a Run line shows a running subagent's activity, and a finished one's status", () => {
 	assert.equal(runLine({ ...run, state: "bash · 12s" }, theme), "● sa-1a2b explore · Audit auth · bash · 12s");
 	assert.equal(runLine({ ...run, status: "failed" }, theme), "✗ sa-1a2b explore · Audit auth · failed");
-	assert.equal(runLine({ ...run, type: "", state: "bash · 12s" }, theme), "● sa-1a2b · Audit auth · bash · 12s");
+	assert.equal(runLine({ ...run, type: "", state: "bash · 12s" }, theme), "● sa-1a2b Audit auth · bash · 12s");
 });
 
 test("a subagent_start block shows its arguments and a prompt preview, and the full prompt expanded", () => {
@@ -106,10 +106,10 @@ test("the widget's tool arguments fill only the free width", () => {
 		startedAt: Date.now(),
 		contextTokens: 0,
 	} as any;
-	const bare = "● sa-1a2b · Audit auth · opus-5-5:high · bash · 0s";
-	assert.equal(widgetLine(r, 200, theme), "● sa-1a2b · Audit auth · opus-5-5:high · bash npm test --watch · 0s");
-	assert.equal(widgetLine(r, bare.length + 5, theme), "● sa-1a2b · Audit auth · opus-5-5:high · bash npm… · 0s");
-	assert.equal(widgetLine(r, bare.length + 4, theme), "● sa-1a2b · Audit auth · opus-5-5:high · bash np… · 0s");
+	const bare = "● sa-1a2b Audit auth · opus-5-5:high · bash · 0s";
+	assert.equal(widgetLine(r, 200, theme), "● sa-1a2b Audit auth · opus-5-5:high · bash npm test --watch · 0s");
+	assert.equal(widgetLine(r, bare.length + 5, theme), "● sa-1a2b Audit auth · opus-5-5:high · bash npm… · 0s");
+	assert.equal(widgetLine(r, bare.length + 4, theme), "● sa-1a2b Audit auth · opus-5-5:high · bash np… · 0s");
 	assert.equal(widgetLine(r, bare.length + 3, theme), bare);
 	const tool = (args: unknown) => widgetLine({ ...r, currentTool: { name: "edit", args } }, 200, theme);
 	assert.match(tool({ edits: [{ oldText: "a", newText: "b" }], path: "src/x.ts" }), / edit src\/x\.ts a b · /);
@@ -119,7 +119,7 @@ test("the widget's tool arguments fill only the free width", () => {
 		bare.length + 4,
 		theme,
 	);
-	assert.equal(fit, "● sa-1a2b · Audit auth · opus-5-5:high · bash abc · 0s");
+	assert.equal(fit, "● sa-1a2b Audit auth · opus-5-5:high · bash abc · 0s");
 	const nested = JSON.parse(`${"[".repeat(20_000)}"deep"${"]".repeat(20_000)}`);
 	assert.doesNotThrow(() => tool({ nested }));
 	const huge = tool({ content: "y".repeat(10_000_000) });

@@ -33,13 +33,13 @@ The atom: one subagent on one line.
 Live Run lines for running and recently finished subagents, above the editor, in start order. No background, no header. Present only while it has rows; it's the only live surface.
 
 ```
-✓ sa-1a2b · Audit auth flow · completed
-● sa-3c4d · Map callers · opus-4-1:high · bash npm test --wat… · 1m12s · 48.3k tokens
+✓ sa-1a2b Audit auth flow · completed
+● sa-3c4d Map callers · opus-4-1:high · bash npm test --wat… · 1m12s · 48.3k tokens
 ```
 
 - **Finished rows stay until the parent ends a turn that has their reports** (the wake, or one that called `subagent_wait`), so a batch shows its progress and clears once the parent has dealt with it. A stopped subagent leaves at once: whoever stopped it already knows.
 - **At most 5 lines.** With more than 5, it shows 4 rows in start order, preferring running subagents over finished ones, then a line counting the rest by status: a `muted` `+N more`, then each status's glyph and `muted` count and name (`+16 more · ● 15 running · ✗ 1 failed`). It stays short, so a failure isn't cut off at usual widths.
-- **No type.** The line is for watching activity; the type is in the `subagent_start` block.
+- **No type, and no `·` after the id.** The line is for watching activity; the type is in the `subagent_start` block.
 - **The model's short name** starts the state: the id and thinking level without the provider path and the parts that rarely tell two models apart (dated snapshots, `-latest`, `claude-` before a family name, and Bedrock's region, vendor, and version). It's a display heuristic, and each rule applies only where it can't mangle a name, so some names stay long: `deepseek.v3`, not `v3`.
 - **The current tool's arguments** follow its name: string arguments on one line, `path` first. They take only the width the rest of the line leaves, so they never push anything off, and they're left out when fewer than 3 columns are free besides the space before them. Control characters show escaped (`\x1b`), so arguments can't drive the terminal. With parallel calls, it's the latest one still running.
 - The tool name is part of the muted state here, not `toolTitle`.
