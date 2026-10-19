@@ -84,8 +84,12 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	let config: Config;
 
 	const running = (): Run[] => [...runs.values()].filter((r) => r.status === "running");
-
-	const widget = new Widget(running);
+	/**
+	 * Finished runs that stay in the widget until a parent turn that has their reports ends, so the user
+	 * sees a batch's progress. Stopped runs leave at once: whoever stopped them already knows.
+	 */
+	const lingering = new Set<string>();
+	const widget = new Widget(() => [...runs.values()].filter((r) => r.status === "running" || lingering.has(r.id)));
 	pi.registerMessageRenderer("subagent-report", renderReportMessage);
 
 	/** Empty the outbox into one custom message. */
@@ -110,15 +114,17 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	}
 
 	function onSettle(run: Run) {
-		widget.refresh();
 		if (!session) return; // Shutting down: a reopened session sees the run as interrupted.
 		// While the session is active, only subagent_stop or a cancelled subagent_start stops runs, and each reports it itself.
 		const stopped = run.status === "stopped";
 		const result = run.status === "failed" ? run.result : stopped ? STOPPED : undefined;
 		pi.appendEntry(ENTRY, { id: run.id, status: run.status, result });
-		if (stopped) return;
-		// Snapshot now: a resume would replace the result before delivery.
-		outbox.push(report(run));
+		if (stopped) lingering.delete(run.id);
+		else {
+			outbox.push(report(run)); // Snapshot now: a resume would replace the result before delivery.
+			lingering.add(run.id);
+		}
+		widget.refresh();
 		deliver();
 	}
 
@@ -171,7 +177,12 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		return run;
 	}
 
-	pi.on("agent_settled", deliver);
+	pi.on("agent_settled", () => {
+		// Reports still in the outbox are delivered below; their rows stay through the turn that reads them.
+		for (const id of lingering) if (!outbox.some((r) => r.id === id)) lingering.delete(id);
+		widget.refresh();
+		deliver();
+	});
 	// Compaction and /tree summaries hold reports back; pi is idle again only after these events.
 	const deliverSoon = () => void setTimeout(deliver);
 	pi.on("session_compact", deliverSoon);
@@ -281,6 +292,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 					await run.stop(); // Reap the child before forgetting it.
 					retractFailure(run);
 					runs.delete(id);
+					widget.refresh();
 					throw err;
 				}
 				// Recorded outside the model's context, also for codemode calls, so a reopened session can resume it.
