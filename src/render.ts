@@ -33,8 +33,9 @@ export function runLine(v: RunView, theme: Theme): string {
 	const { glyph, color } = STATUS[v.status];
 	const sep = theme.fg("muted", " · ");
 	const state = v.status === "running" && v.state ? theme.fg("muted", v.state) : theme.fg(color, v.status);
-	const type = v.type ? ` ${theme.fg("muted", v.type)}` : "";
-	return `${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))}${type}${sep}${theme.fg("text", v.description)}${sep}${state}`;
+	// Without the type (the widget), the bold id sets off the description well enough.
+	const type = v.type ? ` ${theme.fg("muted", v.type)}${sep}` : " ";
+	return `${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))}${type}${theme.fg("text", v.description)}${sep}${state}`;
 }
 
 /** Lines that are cut to the width, never wrapped. */

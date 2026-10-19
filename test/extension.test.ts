@@ -98,10 +98,10 @@ test("a finished run stays in the widget until a turn with its report ends; a st
 	// Delivered by a wake.
 	const { id } = await call("subagent_start", { ...start, prompt: "hello" });
 	await new Promise((resolve) => setTimeout(resolve, 300));
-	assert.deepEqual(drawWidget(), [`✓ ${id} · d · completed`]);
+	assert.deepEqual(drawWidget(), [`✓ ${id} d · completed`]);
 	setIdle(true);
 	handlers.agent_settled(); // Delivers the report and wakes the parent.
-	assert.deepEqual(drawWidget(), [`✓ ${id} · d · completed`]);
+	assert.deepEqual(drawWidget(), [`✓ ${id} d · completed`]);
 	handlers.agent_settled(); // The woken turn ends.
 	assert.equal(drawWidget(), undefined);
 
@@ -109,7 +109,7 @@ test("a finished run stays in the widget until a turn with its report ends; a st
 	setIdle(false);
 	const waited = await call("subagent_start", { ...start, prompt: "hi" });
 	await call("subagent_wait", { ids: [waited.id] });
-	assert.deepEqual(drawWidget(), [`✓ ${waited.id} · d · completed`]);
+	assert.deepEqual(drawWidget(), [`✓ ${waited.id} d · completed`]);
 	handlers.agent_settled();
 	assert.equal(drawWidget(), undefined);
 
