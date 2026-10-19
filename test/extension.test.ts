@@ -32,7 +32,10 @@ function load(
 		sendUserMessage: (text: string) => messages.push(text),
 		appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
 	} as any);
-	const ui = { notify() {}, setWidget() {} };
+	let widget: ((tui: unknown, theme: unknown) => { render(width: number): string[] }) | undefined;
+	const ui = { notify() {}, setWidget: (_key: string, factory: typeof widget) => (widget = factory) };
+	const theme = { fg: (_: string, t: string) => t, bold: (t: string) => t };
+	const drawWidget = () => widget?.({ requestRender() {} }, theme).render(200);
 	const sessionManager = { getEntries: () => entries, getSessionId: () => "parent", getSessionFile: () => sessionFile };
 	handlers.session_start({}, { ui, cwd: tmp, isIdle: () => idle, isProjectTrusted: () => true, sessionManager });
 	delete process.env.PI_BASIC_SUBAGENTS_DEPTH;
@@ -41,7 +44,7 @@ function load(
 	const call = async (name: string, params: unknown) => (await execute(name, params)).structuredContent;
 	const callText = async (name: string, params: unknown) => (await execute(name, params)).content[0].text;
 	const setIdle = (value: boolean) => (idle = value);
-	return { tools: [...tools.keys()], handlers, messages, call, callText, setIdle };
+	return { tools: [...tools.keys()], handlers, messages, call, callText, setIdle, drawWidget };
 }
 
 test("main session gets the tools", () => {
@@ -86,6 +89,36 @@ test("a report that settles while the parent is busy wakes it once idle", async 
 	assert.equal(messages.length, 2);
 	assert.match(messages[0], /^<subagent_notification>\n.*completed[\s\S]*\nhello\n<\/subagent_notification>$/);
 	assert.match(messages[1], /^Subagent reports arrived above/);
+});
+
+test("a finished run stays in the widget until a turn with its report ends; a stopped one leaves at once", async () => {
+	const { call, handlers, setIdle, drawWidget } = load(0);
+	const start = { subagent_type: "explore", description: "d" };
+
+	// Delivered by a wake.
+	const { id } = await call("subagent_start", { ...start, prompt: "hello" });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	assert.deepEqual(drawWidget(), [`✓ ${id} · d · completed`]);
+	setIdle(true);
+	handlers.agent_settled(); // Delivers the report and wakes the parent.
+	assert.deepEqual(drawWidget(), [`✓ ${id} · d · completed`]);
+	handlers.agent_settled(); // The woken turn ends.
+	assert.equal(drawWidget(), undefined);
+
+	// Returned by subagent_wait in a busy parent's turn.
+	setIdle(false);
+	const waited = await call("subagent_start", { ...start, prompt: "hi" });
+	await call("subagent_wait", { ids: [waited.id] });
+	assert.deepEqual(drawWidget(), [`✓ ${waited.id} · d · completed`]);
+	handlers.agent_settled();
+	assert.equal(drawWidget(), undefined);
+
+	// Finished, then resumed and stopped before its first report arrived.
+	const resumed = await call("subagent_start", { ...start, prompt: "hey" });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	await call("subagent_message", { id: resumed.id, message: "slow" });
+	await call("subagent_stop", { id: resumed.id });
+	assert.equal(drawWidget(), undefined);
 });
 
 test("a reopened session knows earlier runs: interrupted ones stopped and resumable, finished ones point to their transcript", async () => {

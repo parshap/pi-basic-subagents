@@ -196,16 +196,16 @@ export function renderReportMessage(
 
 const WIDGET_KEY = "basic-subagents";
 
-/** The Widget (docs/ux.md): a live Run line per running subagent, above the editor. */
+/** The Widget (docs/ux.md): live Run lines for running and recently finished subagents, above the editor. */
 export class Widget {
 	private ui: ExtensionContext["ui"] | undefined;
 	private tui: TUI | undefined;
 	private ticker: NodeJS.Timeout | undefined;
 	private shown = false;
-	private readonly running: () => Run[];
+	private readonly runs: () => Run[];
 
-	constructor(running: () => Run[]) {
-		this.running = running;
+	constructor(runs: () => Run[]) {
+		this.runs = runs;
 	}
 
 	open(ui: ExtensionContext["ui"]) {
@@ -219,9 +219,9 @@ export class Widget {
 		this.refresh();
 	}
 
-	/** Show or hide it as subagents start and finish; while any run, it redraws every second. */
+	/** Show or hide it as its runs change; while it shows, it redraws every second. */
 	refresh = () => {
-		if (!this.ui || this.running().length === 0) {
+		if (!this.ui || this.runs().length === 0) {
 			clearInterval(this.ticker);
 			this.ticker = undefined;
 			if (this.shown) this.ui?.setWidget(WIDGET_KEY, undefined);
@@ -237,7 +237,7 @@ export class Widget {
 			return {
 				render: (width) =>
 					lines(
-						this.running().map((r) => widgetLine(r, width, theme)),
+						this.runs().map((r) => widgetLine(r, width, theme)),
 						theme,
 					).render(width),
 				invalidate() {},
