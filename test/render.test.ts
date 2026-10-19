@@ -10,6 +10,7 @@ import {
 	startRenderers,
 	waitRenderers,
 	widgetLine,
+	widgetLines,
 } from "../src/render.ts";
 
 initTheme();
@@ -123,6 +124,31 @@ test("the widget's tool arguments fill only the free width", () => {
 	assert.doesNotThrow(() => tool({ nested }));
 	const huge = tool({ content: "y".repeat(10_000_000) });
 	assert.ok(huge.length <= 200 && huge.includes("yyy…"));
+});
+
+test("the widget shows at most 5 lines, preferring running rows, then counts the rest by status", () => {
+	const r = (i: number, status: string) =>
+		({
+			status,
+			view: () => ({ ...run, id: `sa-${i}`, status }),
+			opts: {},
+			startedAt: Date.now(),
+			contextTokens: 0,
+		}) as any;
+	const runs = (statuses: string[]) => statuses.map((s, i) => r(i, s));
+	const ids = (ls: string[]) => ls.slice(0, -1).map((l) => l.split(" ")[1]);
+	assert.equal(widgetLines(runs(Array(5).fill("completed")), 200, theme).length, 5);
+	const capped = widgetLines(
+		runs(["completed", "completed", "running", "failed", "running", "running", "running"]),
+		200,
+		theme,
+	);
+	assert.deepEqual(ids(capped), ["sa-2", "sa-4", "sa-5", "sa-6"]);
+	assert.equal(capped[4], "+3 more · ✓ 2 completed · ✗ 1 failed");
+	const many = widgetLines(runs([...Array(19).fill("running"), "failed"]), 80, theme);
+	assert.equal(lines(many, theme).render(80)[4], "+16 more · ● 15 running · ✗ 1 failed");
+	const mixed = runs(["completed", "running", "running", "completed", "completed", "completed"]);
+	assert.deepEqual(ids(widgetLines(mixed, 200, theme)), ["sa-0", "sa-1", "sa-2", "sa-3"]);
 });
 
 test("a model's short name drops what rarely tells models apart", () => {
