@@ -6,7 +6,7 @@ What pi-basic-subagents draws, and the rules every surface follows: its design l
 
 - **Pi owns the frame.** We never choose a background. Tool blocks use pi's tool shell, and reports use pi's custom-message background, so each item looks like every other item of its kind.
 - **Color means status.** Only a subagent's status is colored. Everything else is plain text, muted, or dim.
-- **One line per subagent.** Wherever a subagent is listed (widget, wait results, reports), it's the same Run line; the widget leaves out the type and counts what doesn't fit.
+- **One line per subagent.** Wherever a subagent is listed (widget, tool blocks, reports), it's the same Run line; the widget leaves out the type and counts what doesn't fit.
 - **Collapsed is a summary, expanded is everything.** Collapsed views are single lines cut to the width; expanded views show the full input or output. Expansion follows pi's global toggle (Ctrl+O), plus a click where pi provides one.
 - **Content is for the model, details are for rendering.** Renderers draw from structured `details` and tool arguments, never by parsing the text the model reads. That text must stand on its own in print, JSON, and RPC modes, where nothing is rendered.
 - **Theme tokens only.** No literal colors, and no text left in the terminal's default color, so light and dark themes work.
@@ -37,7 +37,7 @@ Live Run lines for running and recently finished subagents, above the editor, in
 ● sa-3c4d Map callers · opus-4-1:high · bash npm test --wat… · 1m12s · 48.3k tokens
 ```
 
-- **Finished rows stay until the parent ends a turn that has their reports** (the wake, or one that called `subagent_wait`), so a batch shows its progress and clears once the parent has dealt with it. A stopped subagent leaves at once: whoever stopped it already knows.
+- **Finished rows stay until the parent ends a turn that has their reports** (the wake, or one whose script got them), so a batch shows its progress and clears once the parent has dealt with it. A stopped subagent leaves at once: whoever stopped it already knows.
 - **At most 5 lines.** With more than 5, it shows 4 rows in start order, preferring running subagents over finished ones, then a line counting the rest by status: a `muted` `+N more`, then each status's glyph and `muted` count and name (`+16 more · ● 15 running · ✗ 1 failed`). It stays short, so a failure isn't cut off at usual widths.
 - **No type, and no `·` after the id.** The line is for watching activity; the type is in the `subagent_start` block.
 - **The model's short name** starts the state: the id and thinking level without the provider path and the parts that rarely tell two models apart (dated snapshots, `-latest`, `claude-` before a family name, and Bedrock's region, vendor, and version). It's a display heuristic, and each rule applies only where it can't mangle a name, so some names stay long: `deepseek.v3`, not `v3`.
@@ -54,7 +54,6 @@ One per tool call the parent model makes, drawn inside pi's tool shell.
 | Tool | Header, collapsed | Header, expanded | Body, collapsed | Body, expanded |
 |---|---|---|---|---|
 | `subagent_start` | type · description · model, then the first 2 lines of the prompt (muted) | all arguments, the prompt as Markdown | the new Run line | same |
-| `subagent_wait` | the ids (or `all`), the timeout if set | same, wrapped | a Run line per subagent | each report (see Report block) |
 | `subagent_message` | id, then the first line of the message (muted) | the full message | `delivered as steer` or `delivered as resume` | same |
 | `subagent_stop` | id | same | the Run line with its status | same |
 
@@ -85,7 +84,7 @@ Not ours to style: a fixed, short user message that starts the parent's turn whe
 | `customMessageBg` | Report block | something arrived from outside the conversation |
 | none | Widget, Run lines inside other shapes | |
 
-Pi applies these; we only pick the shape. A tool block's background is about the tool call, not the subagent: a `subagent_wait` that returns a failed subagent still succeeded.
+Pi applies these; we only pick the shape. A tool block's background is about the tool call, not the subagent: a `subagent_stop` that finds a failed subagent still succeeded.
 
 ### Status
 

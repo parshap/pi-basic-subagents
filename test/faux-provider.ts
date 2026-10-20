@@ -16,7 +16,10 @@ const text = (content: unknown): string =>
 			? content.map((c) => (c.type === "text" ? c.text : "")).join("")
 			: "";
 
-/** The parent starts a subagent, waits for it, and repeats its report; the subagent answers its brief. */
+/**
+ * The parent awaits a subagent in a codemode script, starts another directly and ends its turn, then
+ * repeats both reports once the second wakes it. A subagent answers its brief.
+ */
 function respond(context: TranscriptContext): AssistantMessage {
 	const messages = context.messages as { role: string; content: unknown }[];
 	if (getCurrentSystemPrompt(context.messages).includes("You are a subagent")) {
@@ -24,14 +27,18 @@ function respond(context: TranscriptContext): AssistantMessage {
 		return fauxAssistantMessage(`pong: ${brief}`);
 	}
 	const results = messages.filter((m) => m.role === "toolResult");
+	const start = { subagent_type: "explore", description: "echo" };
 	if (results.length === 0) {
-		return fauxAssistantMessage(
-			fauxToolCall("subagent_start", { subagent_type: "explore", description: "echo", prompt: "ping" }),
-			{ stopReason: "toolUse" },
-		);
+		const code = `const r = await tools.subagent_run(${JSON.stringify({ ...start, prompt: "scripted" })}); return r.result;`;
+		return fauxAssistantMessage(fauxToolCall("codemode", { code }), { stopReason: "toolUse" });
 	}
-	if (results.length === 1) return fauxAssistantMessage(fauxToolCall("subagent_wait", {}), { stopReason: "toolUse" });
-	return fauxAssistantMessage(`parent saw: ${text(results.at(-1)?.content)}`);
+	if (results.length === 1) {
+		return fauxAssistantMessage(fauxToolCall("subagent_start", { ...start, prompt: "direct" }), {
+			stopReason: "toolUse",
+		});
+	}
+	if (!text(messages.at(-1)?.content).startsWith("Subagent reports arrived")) return fauxAssistantMessage("started");
+	return fauxAssistantMessage(`parent saw: ${text(results[0].content)} | ${text(messages.at(-2)?.content)}`);
 }
 
 export default function (pi: ExtensionAPI) {

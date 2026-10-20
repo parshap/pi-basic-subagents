@@ -14,8 +14,8 @@ Behavior is specified in [docs/spec.md](docs/spec.md) and looks in [docs/ux.md](
 ## How it works
 
 - Each subagent is a `Run` (`src/run.ts`) driving a `pi --mode rpc` child that lives only while the run is active. Every launch bumps a generation counter, so a replaced process's late events can't touch the current launch; that's what keeps a resume racing a stop, or a steer racing the end of a run, safe.
-- The extension (`src/index.ts`) snapshots each report into an outbox when its run settles, since a resume would replace the result. `subagent_wait` takes reports from it; otherwise they're flushed with the wake once the parent is idle. A finished run stays in the widget until an `agent_settled` finds its report gone from the outbox, so the turn that read it has ended; changing how reports are delivered changes how long rows stay.
-- Runs are recorded in the parent session as `basic-subagent` custom entries, a record at start then status patches, and merged by id on `session_start` to restore them.
+- The extension (`src/index.ts`) snapshots each report into an outbox when its run settles, since a resume would replace the result; a stopped run queues none, since whoever stopped it already knows. `subagent_run` and `subagent_continue` take their run's report from it, finding their launch's by its `done` promise; otherwise they're flushed with the wake once the parent is idle. A finished run stays in the widget until an `agent_settled` finds its report gone from the outbox, so the turn that read it has ended; changing how reports are delivered changes how long rows stay.
+- Runs are recorded in the parent session as `basic-subagent` custom entries, a record at start then patches with status changes, and merged by id on `session_start` to restore them.
 - Renderers draw from tool `details` and arguments, never from the text the model reads, so that text stands on its own in modes that render nothing.
 - Launch flags are computed per launch in `launchArgs()`; per-type tool limits would go there.
 
