@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	lines,
 	messageRenderers,
@@ -8,9 +9,11 @@ import {
 	runLine,
 	shortModel,
 	startRenderers,
+	stopRenderers,
 	widgetLine,
 	widgetLines,
 } from "../src/render.ts";
+import type { RunView } from "../src/run.ts";
 
 initTheme();
 // Plain text, so assertions read the layout, not the colors.
@@ -91,17 +94,24 @@ test("a Report block is one Run line per report until expanded", () => {
 });
 
 test("the widget's tool arguments fill only the free width", () => {
+	const view = { ...run, model: "anthropic/claude-opus-5-5:high", elapsedMs: 0 };
 	const r = {
-		view: () => run,
-		opts: { model: "anthropic/claude-opus-5-5:high" },
+		status: "running",
+		view: () => view,
 		currentTool: { name: "bash", args: { command: "npm  test\n--watch", timeout: 300 } },
-		startedAt: Date.now(),
-		contextTokens: 0,
 	} as any;
-	const bare = "● sa-1a2b Audit auth · opus-5-5:high · bash · 0s";
-	assert.equal(widgetLine(r, 200, theme), "● sa-1a2b Audit auth · opus-5-5:high · bash npm test --watch · 0s");
-	assert.equal(widgetLine(r, bare.length + 5, theme), "● sa-1a2b Audit auth · opus-5-5:high · bash npm… · 0s");
-	assert.equal(widgetLine(r, bare.length + 4, theme), "● sa-1a2b Audit auth · opus-5-5:high · bash np… · 0s");
+	assert.equal(
+		widgetLine({ ...r, view: () => ({ ...view, contextTokens: 48_300 }) }, 200, theme),
+		"● sa-1a2b Audit auth · bash npm test --watch · opus-5-5:high · 48.3k ctx · 0s",
+	);
+	assert.equal(
+		widgetLine({ ...r, currentTool: undefined, view: () => ({ ...view, contextTokens: 12_100 }) }, 200, theme),
+		"● sa-1a2b Audit auth · thinking · opus-5-5:high · 12.1k ctx · 0s",
+	);
+	const bare = "● sa-1a2b Audit auth · bash · opus-5-5:high · 0s";
+	assert.equal(widgetLine(r, 200, theme), "● sa-1a2b Audit auth · bash npm test --watch · opus-5-5:high · 0s");
+	assert.equal(widgetLine(r, bare.length + 5, theme), "● sa-1a2b Audit auth · bash npm… · opus-5-5:high · 0s");
+	assert.equal(widgetLine(r, bare.length + 4, theme), "● sa-1a2b Audit auth · bash np… · opus-5-5:high · 0s");
 	assert.equal(widgetLine(r, bare.length + 3, theme), bare);
 	const tool = (args: unknown) => widgetLine({ ...r, currentTool: { name: "edit", args } }, 200, theme);
 	assert.match(tool({ edits: [{ oldText: "a", newText: "b" }], path: "src/x.ts" }), / edit src\/x\.ts a b · /);
@@ -111,7 +121,7 @@ test("the widget's tool arguments fill only the free width", () => {
 		bare.length + 4,
 		theme,
 	);
-	assert.equal(fit, "● sa-1a2b Audit auth · opus-5-5:high · bash abc · 0s");
+	assert.equal(fit, "● sa-1a2b Audit auth · bash abc · opus-5-5:high · 0s");
 	const nested = JSON.parse(`${"[".repeat(20_000)}"deep"${"]".repeat(20_000)}`);
 	assert.doesNotThrow(() => tool({ nested }));
 	const huge = tool({ content: "y".repeat(10_000_000) });
@@ -122,10 +132,7 @@ test("the widget shows at most 5 lines, preferring running rows, then counts the
 	const r = (i: number, status: string) =>
 		({
 			status,
-			view: () => ({ ...run, id: `sa-${i}`, status }),
-			opts: {},
-			startedAt: Date.now(),
-			contextTokens: 0,
+			view: () => ({ ...run, id: `sa-${i}`, status, model: "openai/gpt-6-luna:low", elapsedMs: 12_000 }),
 		}) as any;
 	const runs = (statuses: string[]) => statuses.map((s, i) => r(i, s));
 	const ids = (ls: string[]) => ls.slice(0, -1).map((l) => l.split(" ")[1]);
@@ -141,6 +148,147 @@ test("the widget shows at most 5 lines, preferring running rows, then counts the
 	assert.equal(lines(many, theme).render(80)[4], "+16 more · ● 15 running · ✗ 1 failed");
 	const mixed = runs(["completed", "running", "running", "completed", "completed", "completed"]);
 	assert.deepEqual(ids(widgetLines(mixed, 200, theme)), ["sa-0", "sa-1", "sa-2", "sa-3"]);
+});
+
+test("the widget and finished summaries share session metrics", () => {
+	for (const status of ["running", "completed", "failed", "stopped"] as const) {
+		const view: RunView = {
+			...run,
+			status,
+			state: "bash",
+			model: "anthropic/claude-opus-5-5:high",
+			contextTokens: 132_300,
+			elapsedMs: 72_000,
+		};
+		const expected = `${status === "running" ? "bash" : status} · opus-5-5:high · 132.3k ctx · 1m12s`;
+		const line = runLine(view, theme);
+		assert.ok(line.endsWith(expected));
+		const result = { content: [], details: { run: view } };
+		for (const renderer of [stopRenderers])
+			assert.deepEqual(draw(renderer.renderResult(result, {}, theme), 200), [line]);
+		if (status !== "running") {
+			assert.deepEqual(
+				draw(renderReportMessage({ details: { reports: [view] } }, { expanded: false, outputPad: 0 }, theme), 200),
+				["", line, "(Ctrl+O to expand)", ""],
+			);
+		}
+		const widget = { status, view: () => view, currentTool: { name: "bash", args: {} } } as any;
+		assert.equal(widgetLine(widget, 200, theme), runLine({ ...view, type: "" }, theme));
+	}
+	assert.equal(
+		runLine({ ...run, state: "thinking", elapsedMs: 0 }, theme),
+		"● sa-1a2b explore · Audit auth · thinking · 0s",
+	);
+});
+
+test("expanded stop results and reports show full model and a transcript link", () => {
+	const report = {
+		...run,
+		status: "completed" as const,
+		model: "anthropic/claude-opus-5-5:high",
+		elapsedMs: 72_000,
+		contextTokens: 103_602,
+		session_path: "/s/child.jsonl",
+	};
+	const result = { content: [], details: { run: report } };
+	const expanded = ctx({ expanded: true });
+	const surfaces = [
+		stopRenderers.renderResult(result, {}, theme, expanded),
+		renderReportMessage({ details: { reports: [report] } }, { expanded: true, outputPad: 0 }, theme),
+	];
+	for (const surface of surfaces) {
+		const text = draw(surface, 200).join("\n");
+		assert.ok(text.includes("model: anthropic/claude-opus-5-5:high"));
+		assert.ok(text.includes("/s/child.jsonl"));
+		assert.ok(text.includes("file:///s/child.jsonl"));
+	}
+});
+
+test("old snapshots omit unavailable metrics, and results without details keep their text", () => {
+	const old = { ...run, status: "completed" as const };
+	const result = { content: [], details: { run: old } };
+	const expected = ["✓ sa-1a2b explore · Audit auth · completed"];
+	for (const renderer of [stopRenderers]) {
+		assert.deepEqual(draw(renderer.renderResult(result, {}, theme, ctx({ expanded: true }))), expected);
+		assert.deepEqual(draw(renderer.renderResult({ content: [{ type: "text", text: "Old result." }] }, {}, theme)), [
+			"Old result.",
+		]);
+	}
+	assert.deepEqual(
+		draw(renderReportMessage({ details: { reports: [old] } }, { expanded: true, outputPad: 0 }, theme)),
+		["", ...expected, ""],
+	);
+	assert.equal(widgetLine({ view: () => old } as any, 200, theme), "✓ sa-1a2b Audit auth · completed");
+});
+
+test("narrow views fit the width while expanded metadata wraps without losing values", () => {
+	const view = {
+		...run,
+		model: "anthropic/claude-opus-5-5:high",
+		elapsedMs: 72_000,
+		contextTokens: 103_602,
+	};
+	const widget = { view: () => view, currentTool: { name: "bash", args: { command: "漢字".repeat(100) } } } as any;
+	const bare = widgetLine({ ...widget, currentTool: { name: "bash", args: {} } }, 200, theme);
+	const budget = visibleWidth(bare) + 6;
+	const withArgs = widgetLine(widget, budget, theme);
+	assert.ok(visibleWidth(withArgs) <= budget);
+	assert.ok(withArgs.endsWith("· opus-5-5:high · 103.6k ctx · 1m12s"));
+	for (const width of [1, 10, 30]) {
+		const collapsed = lines([widgetLine(widget, width, theme), runLine(view, theme)], theme).render(width);
+		assert.ok(collapsed.every((line) => visibleWidth(line) <= width));
+		assert.ok(collapsed.every((line) => stripTerminalSequences(line).endsWith("…")));
+	}
+	const expanded = draw(
+		stopRenderers.renderResult({ content: [], details: { run: view } }, {}, theme, ctx({ expanded: true })),
+		20,
+	);
+	assert.ok(expanded.every((line) => visibleWidth(line) <= 20));
+	const text = expanded.map(stripTerminalSequences).join("").replace(/\s/g, "");
+	assert.ok(text.includes(runLine(view, theme).replace(/\s/g, "")));
+	assert.ok(text.includes(`model:${view.model}`));
+});
+
+test("failure summaries use the error, sanitize terminal controls, and keep the full error independently", () => {
+	const error =
+		"\r\n  \r\n\x1b[31mrate limited\x1b[0m\x1b[2J\r\nretry after 60s\x07\x1b]8;;https://evil.test\x07link\x1b]8;;\x07";
+	const view = { ...run, status: "failed" as const, error };
+	const colored = { ...theme, fg: (c: string, t: string) => `[${c}]${t}[/${c}]` };
+	assert.ok(runLine(view, colored).includes("[error]failed: rate limited[/error]"));
+	assert.equal(runLine(view, theme), "✗ sa-1a2b explore · Audit auth · failed: rate limited");
+	assert.equal(widgetLine({ view: () => view } as any, 200, theme), "✗ sa-1a2b Audit auth · failed: rate limited");
+	assert.ok(!runLine({ ...run, error, status: "completed" }, theme).includes("rate limited"));
+	const surfaces = [
+		stopRenderers.renderResult({ content: [], details: { run: view } }, {}, theme, ctx({ expanded: true })),
+		renderReportMessage({ details: { reports: [view] } }, { expanded: true, outputPad: 0 }, theme),
+	];
+	for (const surface of surfaces) {
+		const text = draw(surface, 200).join("\n");
+		assert.ok(text.includes("retry after 60s\\x07link"));
+		assert.ok(!text.includes("https://evil.test") && !text.includes("\x1b") && !text.includes("\x07"));
+	}
+	const longError = "x".repeat(300);
+	const result = { content: [], details: { run: { ...view, error: longError } } };
+	const collapsed = draw(stopRenderers.renderResult(result, {}, theme), 60);
+	assert.equal(collapsed.length, 1);
+	assert.ok(stripTerminalSequences(collapsed[0]).endsWith("…"));
+	const expanded = draw(stopRenderers.renderResult(result, {}, theme, ctx({ expanded: true })), 60);
+	assert.ok(expanded.every((l) => visibleWidth(l) <= 60));
+	assert.ok(expanded.join("").includes(longError));
+});
+
+test("an error-only report doesn't repeat its failure as a result preview or body", () => {
+	const report = { ...run, status: "failed" as const, error: "rate limited", result: "rate limited" };
+	const collapsed = draw(
+		renderReportMessage({ details: { reports: [report] } }, { expanded: false, outputPad: 0 }, theme),
+		200,
+	).join("\n");
+	assert.equal(collapsed.split("rate limited").length - 1, 1);
+	const expanded = draw(
+		renderReportMessage({ details: { reports: [report] } }, { expanded: true, outputPad: 0 }, theme),
+		200,
+	).join("\n");
+	assert.equal(expanded.split("rate limited").length - 1, 2); // Summary and full error, not a third result copy.
 });
 
 test("a model's short name drops what rarely tells models apart", () => {

@@ -12,6 +12,10 @@ export interface RunView {
 	description: string;
 	status: Status;
 	state?: string;
+	error?: string;
+	model?: string;
+	elapsedMs?: number;
+	contextTokens?: number;
 }
 
 /** What identifies a run across parent processes; recorded in the parent session. */
@@ -65,12 +69,15 @@ function piInvocation(args: string[]): { command: string; args: string[] } {
 export class Run {
 	status: Status = "running";
 	result = "";
+	error: string | undefined;
 	sessionPath: string | undefined;
 	/** Tool calls in flight, by call id; pi runs a message's tool calls in parallel. */
 	readonly tools = new Map<string, { name: string; args: unknown }>();
-	startedAt = Date.now();
-	/** The child's context size after its latest model response. */
-	contextTokens = 0;
+	startedAt: number | undefined;
+	/** The child's context size as of its latest model response, as pi's footer shows it. */
+	contextTokens: number | undefined;
+	/** Frozen at settlement; restored snapshots can assign this directly. */
+	elapsedMs: number | undefined;
 	/** Resolves when the current run settles. */
 	done: Promise<void> = Promise.resolve();
 
@@ -108,7 +115,20 @@ export class Run {
 	}
 
 	view(): RunView {
-		return { id: this.id, type: this.opts.type, description: this.opts.description, status: this.status };
+		const elapsedMs =
+			this.status === "running" && this.startedAt !== undefined
+				? Math.max(0, Date.now() - this.startedAt)
+				: this.elapsedMs;
+		return {
+			id: this.id,
+			type: this.opts.type,
+			description: this.opts.description,
+			status: this.status,
+			...(this.error !== undefined && { error: this.error }),
+			...(this.opts.model !== undefined && { model: this.opts.model }),
+			...(elapsedMs !== undefined && { elapsedMs }),
+			...(this.contextTokens !== undefined && { contextTokens: this.contextTokens }),
+		};
 	}
 
 	/**
@@ -129,11 +149,13 @@ export class Run {
 		// Reserve the run synchronously so concurrent callers steer this launch instead of starting another.
 		this.status = "running";
 		this.result = "";
+		this.error = undefined;
 		this.stopping = false;
 		this.steered = false;
 		this.stderr = "";
 		this.lastAssistant = undefined;
 		this.startedAt = Date.now();
+		this.elapsedMs = undefined;
 		this.done = new Promise((resolve) => (this.settle = resolve));
 		this.starting = this.launch(message, ++this.generation).catch((err) => {
 			this.finish("failed", `Failed to start pi: ${err instanceof Error ? err.message : err}`);
@@ -283,9 +305,11 @@ export class Run {
 				this.tools.delete(event.toolCallId);
 				break;
 			case "message_end":
-				if (event.message?.role !== "assistant") break;
-				this.lastAssistant = event.message;
-				this.contextTokens = event.message.usage?.totalTokens ?? this.contextTokens;
+				if (event.message?.role === "assistant") {
+					this.lastAssistant = event.message;
+					// Aborted and failed responses can report zero, which isn't the context's size.
+					if (event.message.usage?.totalTokens > 0) this.contextTokens = event.message.usage.totalTokens;
+				}
 				break;
 			case "agent_settled":
 				void this.settled(event.aborted);
@@ -308,9 +332,12 @@ export class Run {
 				if (res.success && res.data?.disposition !== "handled") return; // Its run settles later.
 			}
 		}
-		const failed = this.lastAssistant?.stopReason === "error" || (aborted && !this.stopping);
-		const error = this.lastAssistant?.errorMessage;
-		this.finish(this.stopping ? "stopped" : failed ? "failed" : "completed", this.text() || error || "(no output)");
+		if (!this.stopping && (this.lastAssistant?.stopReason === "error" || aborted)) {
+			const reason =
+				this.lastAssistant?.errorMessage || (aborted ? "pi aborted before finishing" : "Model response failed");
+			return this.finish("failed", this.text() || reason, reason);
+		}
+		this.finish(this.stopping ? "stopped" : "completed", this.text() || "(no output)");
 	}
 
 	private text(): string {
@@ -323,10 +350,13 @@ export class Run {
 			.trim();
 	}
 
-	private finish(status: Status, result: string) {
+	/** A failed run's `error` is its reason, which `result` holds too unless the child wrote text first. */
+	private finish(status: Status, result: string, error = status === "failed" ? result : undefined) {
 		if (this.status !== "running") return;
 		this.status = status;
+		if (this.startedAt !== undefined) this.elapsedMs = Math.max(0, Date.now() - this.startedAt);
 		this.result = result;
+		this.error = error;
 		this.tools.clear();
 		// The process lives only while a run is active; closing stdin lets it exit cleanly.
 		this.proc?.stdin?.end();

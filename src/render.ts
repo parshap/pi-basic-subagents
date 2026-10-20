@@ -15,8 +15,8 @@ import {
 } from "@earendil-works/pi-tui";
 import { type Run, type RunView, STATUSES, type Status } from "./run.ts";
 
-/** A finished (or running) subagent's report, for report messages. */
-export interface ReportView extends RunView {
+/** A finished subagent's report. */
+export interface Report extends RunView {
 	result?: string;
 	session_path?: string;
 }
@@ -32,10 +32,22 @@ const STATUS: Record<Status, { glyph: string; color: "accent" | "success" | "err
 export function runLine(v: RunView, theme: Theme): string {
 	const { glyph, color } = STATUS[v.status];
 	const sep = theme.fg("muted", " · ");
-	const state = v.status === "running" && v.state ? theme.fg("muted", v.state) : theme.fg(color, v.status);
+	const reason = v.status === "failed" ? firstLines(safeText(v.error ?? ""), 1)[0]?.trim() : undefined;
+	const state =
+		v.status === "running" && v.state
+			? theme.fg("muted", v.state)
+			: theme.fg(color, reason ? `failed: ${reason}` : v.status);
 	// Without the type (the widget), the bold id sets off the description well enough.
 	const type = v.type ? ` ${theme.fg("muted", v.type)}${sep}` : " ";
-	return `${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))}${type}${theme.fg("text", v.description)}${sep}${state}`;
+	const metadata = [
+		...(v.model ? [shortModel(v.model)] : []),
+		...(v.contextTokens ? [`${k(v.contextTokens)} ctx`] : []),
+		...(v.elapsedMs !== undefined ? [elapsed(v.elapsedMs)] : []),
+	];
+	return [
+		`${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))}${type}${theme.fg("text", v.description)}${sep}${state}`,
+		...metadata.map((text) => theme.fg("muted", text)),
+	].join(sep);
 }
 
 /** Lines that are cut to the width, never wrapped. */
@@ -83,16 +95,24 @@ function expandHint(theme: Theme): string {
 	return theme.fg("dim", `(${key} to expand)`);
 }
 
-/** A report's full view: its Run line, transcript link, and result. */
-function reportSection(r: ReportView, theme: Theme, color: BodyColor): Component {
-	const parts: Component[] = [lines([runLine(r, theme)], theme)];
+/** Untrusted plain text must not drive the terminal or override the theme. */
+const safeText = (text: string) =>
+	stripTerminalSequences(text)
+		.replace(/\r\n?/g, "\n")
+		.replace(/\p{Cc}/gu, (c) => (c === "\n" ? c : `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`));
+
+/** A report's full view: its summary, model, transcript link, error, and result. */
+function reportSection(r: Report, theme: Theme, color: BodyColor = "toolOutput"): Component {
+	const parts: Component[] = [wrapped(runLine(r, theme))];
+	if (r.model) parts.push(wrapped(theme.fg("muted", `model: ${r.model}`)));
 	if (r.session_path)
-		parts.push(lines([theme.fg("muted", hyperlink(r.session_path, pathToFileURL(r.session_path).href))], theme));
-	if (r.result) parts.push(new Spacer(1), markdown(r.result, theme, color));
+		parts.push(wrapped(theme.fg("muted", hyperlink(r.session_path, pathToFileURL(r.session_path).href))));
+	if (r.error) parts.push(new Spacer(1), wrapped(theme.fg(color, safeText(r.error))));
+	if (r.result && r.result !== r.error) parts.push(new Spacer(1), markdown(r.result, theme, color));
 	return stack(parts);
 }
 
-function reportList(reports: ReportView[], expanded: boolean, theme: Theme, color: BodyColor): Component {
+function reportList(reports: Report[], expanded: boolean, theme: Theme, color: BodyColor): Component {
 	if (!expanded)
 		return lines(
 			reports.map((r) => runLine(r, theme)),
@@ -162,15 +182,16 @@ export const stopRenderers = {
 	renderCall(args: { id?: string }, theme: Theme) {
 		return lines([`${title("subagent_stop", theme)} ${theme.fg("text", args.id ?? "")}`], theme);
 	},
-	renderResult(result: Result<{ run: RunView }>, _opts: unknown, theme: Theme) {
+	renderResult(result: Result<{ run: Report }>, _opts: unknown, theme: Theme, ctx: Ctx = { expanded: false }) {
 		if (!result.details?.run) return textResult(result, theme);
-		return lines([runLine(result.details.run, theme)], theme);
+		const r = result.details.run;
+		return ctx.expanded ? reportSection(r, theme) : lines([runLine(r, theme)], theme);
 	},
 };
 
 /** The Report block: a custom message in pi's custom-message frame. */
 export function renderReportMessage(
-	message: { details?: { reports: ReportView[] } },
+	message: { details?: { reports: Report[] } },
 	options: { expanded: boolean; outputPad: number },
 	theme: Theme,
 ): Component | undefined {
@@ -255,10 +276,13 @@ export function widgetLines(runs: Run[], width: number, theme: Theme): string[] 
 
 /** A widget Run line: the current tool's arguments get only the width the rest leaves free. */
 export function widgetLine(r: Run, width: number, theme: Theme): string {
-	const line = (args?: string) => runLine({ ...r.view(), type: "", state: state(r, args) }, theme);
+	const view = r.view();
+	const tool = view.status === "running" ? r.currentTool : undefined;
+	const line = (args?: string) =>
+		runLine({ ...view, type: "", state: tool ? `${tool.name}${args ? ` ${args}` : ""}` : "thinking" }, theme);
 	const base = line();
 	const free = width - visibleWidth(base) - 1; // 1 for the space before the arguments.
-	const args = free >= 3 ? argsText(r.currentTool?.args, free + 1) : "";
+	const args = free >= 3 ? argsText(tool?.args, free + 1) : "";
 	// Stripped: truncateToWidth's reset would end the muted color. args has no escapes of its own left.
 	return args ? line(stripTerminalSequences(truncateToWidth(args, free, "…"))) : base;
 }
@@ -286,12 +310,6 @@ function argsText(args: unknown, max: number): string {
 	return cut && text ? `${text}…` : text;
 }
 
-function state(r: Run, args?: string): string {
-	const tokens = r.contextTokens ? ` · ${k(r.contextTokens)} tokens` : "";
-	const model = r.opts.model ? `${shortModel(r.opts.model)} · ` : "";
-	return `${model}${r.currentTool ? `${r.currentTool.name}${args ? ` ${args}` : ""}` : "thinking"} · ${elapsed(Date.now() - r.startedAt)}${tokens}`;
-}
-
 const THINKING = /:(off|minimal|low|medium|high|xhigh|max)$/;
 
 /**
@@ -313,7 +331,7 @@ export function shortModel(model: string): string {
 	return (id || full) + thinking;
 }
 
-const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+const k = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 function elapsed(ms: number): string {
 	const s = Math.floor(ms / 1000);

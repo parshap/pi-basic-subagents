@@ -28,6 +28,9 @@ function fakeRun(env: Record<string, string> = {}, sessionDir = tmp) {
 	return { run, spawns };
 }
 
+/** An assistant message's usage, in pi's shape. */
+const usage = (totalTokens: number) =>
+	JSON.stringify({ input: totalTokens, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens });
 const alive = (pid: number) => {
 	try {
 		process.kill(pid, 0);
@@ -44,6 +47,59 @@ test("a run completes with its final message", async () => {
 	assert.equal(run.status, "completed");
 	assert.equal(run.result, "hello");
 	assert.match(run.sessionPath ?? "", new RegExp(`_${run.sessionId}\\.jsonl$`));
+});
+
+test("metrics are unavailable before launch and old restored runs keep them omitted", () => {
+	const { run } = fakeRun();
+	const base = { id: run.id, type: "explore", description: "test", status: "running" };
+	assert.deepEqual(run.view(), base);
+	run.status = "completed";
+	assert.deepEqual(run.view(), { ...base, status: "completed" });
+	run.opts.model = "provider/model";
+	run.elapsedMs = 450;
+	run.contextTokens = 19;
+	assert.deepEqual(run.view(), {
+		...base,
+		status: "completed",
+		model: "provider/model",
+		elapsedMs: 450,
+		contextTokens: 19,
+	});
+});
+
+test("context is the latest response's size, and duration only the latest launch's", async (t) => {
+	let now = 1000;
+	t.mock.method(Date, "now", () => now);
+	const { run } = fakeRun({ FAKE_USAGE: usage(19) });
+	const snapshots: ReturnType<Run["view"]>[] = [];
+	run.opts.onSettle = (settled) => snapshots.push(settled.view());
+	await run.prompt("hello");
+	assert.equal(run.view().elapsedMs, 0);
+	now = 1100;
+	assert.equal(run.view().elapsedMs, 100);
+	await run.done;
+	assert.equal(run.view().contextTokens, 19);
+	assert.equal(run.view().elapsedMs, 100);
+	now = 1500;
+	assert.equal(run.view().elapsedMs, 100);
+	now = 2000;
+	run.opts.env.FAKE_USAGE = usage(12);
+	const resumed = run.send("again", () => {});
+	assert.equal(run.view().contextTokens, 19);
+	assert.equal(run.elapsedMs, undefined);
+	assert.equal(run.view().elapsedMs, 0);
+	await resumed;
+	now = 2200;
+	await run.done;
+	assert.equal(run.view().contextTokens, 12); // Replaced, not added, as after a compaction.
+	assert.equal(run.view().elapsedMs, 200);
+	run.opts.env.FAKE_USAGE = usage(0);
+	await run.send("third", () => {});
+	await run.done;
+	assert.deepEqual(
+		snapshots.map((s) => s.contextTokens),
+		[19, 12, 12], // A response reporting zero doesn't reset it.
+	);
 });
 
 test("a message to a running subagent steers it", async () => {
@@ -73,11 +129,21 @@ test("concurrent messages to a finished subagent resume it once", async () => {
 	assert.equal(spawns().length, 2);
 });
 
-test("a startup failure settles the run as failed", async () => {
+test("a startup failure settles the run as failed with its explicit reason", async () => {
 	const { run } = fakeRun({}, "/dev/null/sessions");
 	await assert.rejects(run.prompt("hello"));
 	assert.equal(run.status, "failed");
+	assert.match(run.error ?? "", /Failed to start pi:/);
+	assert.equal(run.view().error, run.error);
 	await run.done;
+});
+
+test("RPC startup rejection preserves its error reason", async () => {
+	const { run } = fakeRun({ FAKE_STARTUP_ERROR: "extension initialization failed" });
+	await run.prompt("hello");
+	await run.done;
+	assert.equal(run.status, "failed");
+	assert.match(run.error ?? "", /pi didn't start: extension initialization failed/);
 });
 
 test("stop kills a child that ignores stdin EOF and SIGTERM", async () => {

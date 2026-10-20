@@ -13,8 +13,8 @@ import {
 import { type Static, Type } from "typebox";
 import { type Config, currentDepth, inheritedFlags, resolveConfig } from "./config.ts";
 import { SUBAGENT_TYPES, type SubagentType } from "./prompts.ts";
-import { messageRenderers, renderReportMessage, startRenderers, stopRenderers, Widget } from "./render.ts";
-import { Run, type RunRecord, STATUSES } from "./run.ts";
+import { messageRenderers, type Report, renderReportMessage, startRenderers, stopRenderers, Widget } from "./render.ts";
+import { Run, type RunRecord, type RunView, STATUSES } from "./run.ts";
 
 // Session entries, outside the model's context: a run's record at start, then patches with its status changes.
 const ENTRY = "basic-subagent";
@@ -22,7 +22,7 @@ const INTERRUPTED = "(Stopped when the parent session ended. Resume it with suba
 const STOPPED = "(Stopped. Resume it with subagent_message.)";
 const WAKE_TEXT = "Subagent reports arrived above. Continue the task they belong to, or report to the user.";
 
-/** A run as the model sees it in wait results and reports; also what the report shapes draw. */
+/** What a script's subagent_run or subagent_continue resolves to: the report's content, no metrics. */
 const reportSchema = Type.Object({
 	id: Type.String(),
 	type: Type.String(),
@@ -31,7 +31,10 @@ const reportSchema = Type.Object({
 	result: Type.Optional(Type.String()),
 	session_path: Type.Optional(Type.String()),
 });
-export type Report = Static<typeof reportSchema>;
+const forScript = (r: Report): Static<typeof reportSchema> => {
+	const { id, type, description, status, session_path } = r;
+	return { id, type, description, status, result: r.result, session_path };
+};
 
 const startParams = Type.Object({
 	subagent_type: Type.Optional(StringEnum(Object.keys(SUBAGENT_TYPES) as SubagentType[])),
@@ -86,7 +89,10 @@ function childSessionDir(sm: ExtensionContext["sessionManager"]): string {
 		: path.join(getAgentDir(), "sessions", "basic-subagents", sm.getSessionId());
 }
 
-/** A report as the model reads it. The transcript path is left out: the JSONL would flood its context. */
+/**
+ * A report as the model reads it, without the metrics the UI shows. The transcript path is left out too:
+ * the JSONL would flood its context.
+ */
 function formatReport(r: Report): string {
 	const head = `${r.id} (${r.type}: ${r.description}) ${r.status}`;
 	return r.result !== undefined ? `${head}\n\n${r.result}` : head;
@@ -165,7 +171,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		if (run.status === "stopped" || !session) {
 			reportOf.set(run.done, report(run));
 			if (!session) return; // Shutting down: a reopened session sees the run as interrupted.
-			pi.appendEntry(ENTRY, { id: run.id, status: run.status, result: STOPPED });
+			pi.appendEntry(ENTRY, { ...run.view(), result: STOPPED });
 			lingering.delete(run.id);
 		} else {
 			const key = randomUUID();
@@ -175,7 +181,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			const lines = run.result.split("\n").length;
 			reportOf.set(run.done, r);
 			keys.set(r, key);
-			pi.appendEntry(ENTRY, { id: run.id, status: run.status, settled: key, report: file, lines });
+			pi.appendEntry(ENTRY, { ...run.view(), settled: key, report: file, lines });
 			outbox.push(r);
 			lingering.add(run.id);
 		}
@@ -290,7 +296,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	 * without a wake, as Claude Code does on resume: it may have ended its turn expecting their reports.
 	 */
 	function restoreRuns(ctx: ExtensionContext) {
-		type Saved = RunRecord & { status?: Run["status"]; result?: string };
+		type Saved = RunRecord & Partial<RunView> & { result?: string };
 		type Patch = Saved & { settled?: string; delivered?: string; report?: string; lines?: number };
 		const saved = new Map<string, Saved>();
 		/** Reports, by key, that were queued but never delivered. */
@@ -299,22 +305,30 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		for (const entry of ctx.sessionManager.getEntries()) {
 			if (entry.type !== "custom" || entry.customType !== ENTRY) continue;
 			const { settled, delivered, report: file, lines, ...data } = entry.data as Patch;
-			saved.set(data.id, { ...saved.get(data.id), ...data });
+			saved.set(data.id, {
+				...saved.get(data.id),
+				...(data.status === "running" ? { elapsedMs: undefined, error: undefined } : {}),
+				...data,
+			});
 			if (settled) missed.set(settled, { id: data.id, status: data.status ?? "completed", file, lines });
 			if (delivered) missed.delete(delivered);
 		}
-		for (const { status = "running", result, ...record } of saved.values()) {
+		for (const { status = "running", result, error, elapsedMs, contextTokens, ...record } of saved.values()) {
 			// Runs a fork copied from its original stay with the original, so the two never share a child session.
 			// This also drops starts that failed or were cancelled: their status patch was never followed by a record.
 			if (record.sessionDir !== childSessionDir(ctx.sessionManager)) continue;
 			const run = addRun(record, ctx.sessionManager.getSessionId());
 			run.sessionPath = SessionManager.findById(record.cwd, record.sessionId, record.sessionDir);
 			run.status = status === "running" ? "stopped" : status;
+			run.error = error;
+			run.elapsedMs = elapsedMs;
+			run.contextTokens = contextTokens;
 			run.result = status === "running" ? INTERRUPTED : (result ?? "");
 			for (const [key, m] of missed) {
 				if (m.id !== run.id) continue;
 				const result = m.file && briefLine(m.file, m.lines ?? 0);
-				const r: Report = { ...run.view(), status: m.status, session_path: run.sessionPath, result };
+				// No error: it may be a later launch's, and the file has this one's.
+				const r: Report = { ...run.view(), status: m.status, error: undefined, session_path: run.sessionPath, result };
 				keys.set(r, key);
 				outbox.push(r);
 			}
@@ -445,7 +459,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 				const r = await nextReport(run, done, signal);
 				return {
 					content: [{ type: "text", text: formatReport(r) }],
-					structuredContent: r,
+					structuredContent: forScript(r),
 					details: { run: run.view() },
 				};
 			},
@@ -483,7 +497,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 				const r = await nextReport(run, done, signal);
 				return {
 					content: [{ type: "text", text: formatReport(r) }],
-					structuredContent: r,
+					structuredContent: forScript(r),
 					details: { run: run.view() },
 				};
 			},
@@ -500,7 +514,10 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const run = getRun(params.id);
 				await run.stop();
-				return { content: [{ type: "text", text: `${run.id}: ${run.status}.` }], details: { run: run.view() } };
+				return {
+					content: [{ type: "text", text: `${run.id}: ${run.status}.` }],
+					details: { run: { ...run.view(), session_path: run.sessionPath } },
+				};
 			},
 			...stopRenderers,
 		});
