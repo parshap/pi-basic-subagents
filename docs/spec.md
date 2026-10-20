@@ -34,6 +34,7 @@ In pi's terms, the model's tools are `model-only` and the scripts' are `codemode
 When a run finishes, its full report is saved to a file next to its transcript (`<id>-<key>.md`) and waits until the parent is idle. Then pending reports are appended as one `<subagent_notification>` custom message, and a short user prompt wakes the parent, naming any subagents still running: a partial batch is when models tend to wait for the rest. The wake is a prompt rather than `triggerTurn` so it goes through pi's normal prompt path (`before_agent_start`); if pi rejects it, the reports are already in the session. Open problem: [the wake shows up as something the user typed](issues/wake-prompt-is-a-user-message.md).
 
 - **What the model reads.** A report is its status line, then its result. A report leaves out the transcript path: the JSONL would flood the parent's context, and the report's file covers reading more. The UI still links the transcript.
+- **Missed reports.** On reopen there may be many, so each is just its status line and `Report: <file> (N lines)`, in the UI too.
 
 ## 4. Runs
 
@@ -46,7 +47,7 @@ When a run finishes, its full report is saved to a file next to its transcript (
 
 ## 5. Sessions
 
-When the parent session shuts down (exit, `/reload`, `/new`, `/resume`), running children are aborted and terminated. Each run and its status changes are recorded in the parent session as custom entries outside the model's context, so subagent ids keep working when the session is reopened, and `subagent_message` resumes runs the exit cut short. A fork (`/fork`) doesn't take over its original's subagents, so the two never share a child session; their reports stay in the copied conversation.
+When the parent session shuts down (exit, `/reload`, `/new`, `/resume`), running children are aborted and terminated. Each run and its status changes are recorded in the parent session as custom entries outside the model's context, so subagent ids keep working when the session is reopened, and `subagent_message` resumes runs the exit cut short. The model may have ended its turn expecting reports, so a reopened session also appends, without a wake, one notification covering runs the exit cut short and reports that never arrived ([§3](#3-reports)), each once, as Claude Code does on resume. A fork (`/fork`) doesn't take over its original's subagents, so the two never share a child session; their reports stay in the copied conversation.
 
 ## 6. Configuration
 

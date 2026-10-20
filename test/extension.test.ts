@@ -55,6 +55,10 @@ function load(
 	return { tools: [...tools.keys()], handlers, messages, call, callText, script, setIdle, drawWidget };
 }
 
+/** The file a brief report points to, from a notification. */
+const briefFile = (notification: string, id: string) =>
+	notification.match(new RegExp(`${id} \\(explore: d\\) \\w+\\n\\nReport: (\\S+\\.md) \\(\\d+ lines?\\)`))![1];
+
 test("main session gets the tools", () => {
 	assert.deepEqual(load(0).tools, [
 		"subagent_start",
@@ -148,6 +152,28 @@ test("a script awaiting a resume gets that launch's report, leaving an earlier o
 	assert.match(messages[0], /\nfirst\n/);
 });
 
+test("a reopened session delivers a queued report even after a later one reached a script", async () => {
+	const entries: any[] = [];
+	const first = load(0, {}, entries);
+	const { id } = await first.call("subagent_start", { subagent_type: "explore", prompt: "first", description: "d" });
+	await new Promise((resolve) => setTimeout(resolve, 300)); // Queued: the parent is busy.
+	assert.equal((await first.script("subagent_continue", { id, message: "second" })).result, "second");
+	first.handlers.agent_settled(); // The turn with the script's result ends.
+	await first.handlers.session_shutdown();
+	const [notification] = load(0, {}, entries).messages;
+	assert.equal(notification.match(/Report: /g)?.length, 1);
+	assert.equal(fs.readFileSync(briefFile(notification, id), "utf8"), "first");
+});
+
+test("a reopened session gets the reports a script took when pi quit before the script's turn ended", async () => {
+	const entries: any[] = [];
+	const first = load(0, {}, entries);
+	const { id } = await first.script("subagent_run", { subagent_type: "explore", prompt: "done", description: "d" });
+	await first.handlers.session_shutdown();
+	const [notification] = load(0, {}, entries).messages;
+	assert.equal(fs.readFileSync(briefFile(notification, id), "utf8"), "done");
+});
+
 test("cancelling a script's call stops the subagent it started, so no report arrives later", async () => {
 	const { script, handlers, messages, setIdle } = load(0);
 	process.env.FAKE_RUN_MS = "600";
@@ -216,20 +242,26 @@ test("a finished run stays in the widget until a turn with its report ends; a st
 	assert.equal(drawWidget(), undefined);
 });
 
-test("a reopened session knows earlier runs: interrupted ones resume", async () => {
+test("a reopened session reports runs it never heard from, once, without waking the parent", async () => {
 	const entries: any[] = [];
 	const first = load(0, {}, entries);
-	const { id: cut } = await first.call("subagent_start", {
-		subagent_type: "explore",
-		prompt: "slow",
-		description: "d",
-	});
+	const start = { subagent_type: "explore", description: "d" };
+	const { id: done } = await first.call("subagent_start", { ...start, prompt: "finished" });
+	await new Promise((resolve) => setTimeout(resolve, 300)); // Settles while the parent is busy.
+	const { id: cut } = await first.call("subagent_start", { ...start, prompt: "slow" });
 	await first.handlers.session_shutdown();
 
 	const second = load(0, {}, entries);
-	const resumed = await second.script("subagent_continue", { id: cut, message: "go on" });
-
-	assert.equal(resumed.result, "go on");
+	assert.equal(second.messages.length, 1); // No wake.
+	assert.equal(fs.readFileSync(briefFile(second.messages[0], done), "utf8"), "finished");
+	assert.match(
+		second.messages[0],
+		new RegExp(`${cut} \\(explore: d\\) stopped\\n\\n\\(Stopped when the parent session ended`),
+	);
+	assert.equal((await second.script("subagent_continue", { id: cut, message: "go on" })).result, "go on");
+	second.handlers.agent_settled();
+	await second.handlers.session_shutdown();
+	assert.deepEqual(load(0, {}, entries).messages, []);
 });
 
 test("a fork doesn't take over its original's subagents", async () => {
@@ -256,7 +288,7 @@ test("a resumed run cut short by shutdown reopens as stopped", async () => {
 	});
 	await first.call("subagent_message", { id, message: "slow more" });
 	await first.handlers.session_shutdown();
-	assert.equal((await load(0, {}, entries).call("subagent_stop", { id })).status, "stopped");
+	assert.match(load(0, {}, entries).messages[0], new RegExp(`${id} \\(explore: d\\) stopped`));
 });
 
 test("a message that arrives as a run finishes resumes it without losing the first report", async () => {
@@ -296,6 +328,7 @@ test("a start that fails leaves no run behind", async () => {
 		process.argv[1] = fakePi;
 	}
 	assert.equal(drawWidget(), undefined);
+	assert.deepEqual(load(0, {}, entries).messages, []); // Not reported as interrupted either.
 });
 
 test("a resume that fails to start fails the message, and its report isn't sent again", async () => {
