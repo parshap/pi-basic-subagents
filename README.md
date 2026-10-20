@@ -108,7 +108,7 @@ They can, and they can collide: subagents work in your project directory, not a 
 
 **Can I see what a subagent did?**
 
-Expand its report (Ctrl+O) for the transcript path. `pi --session <path>` opens it; to continue the work yourself, use `pi --fork <path>`, which leaves the original for your agent to resume.
+Expand its report (Ctrl+O) for the transcript path. Each finished report is also saved as a Markdown file next to the transcript. `pi --session <path>` opens it; to continue the work yourself, use `pi --fork <path>`, which leaves the original for your agent to resume.
 
 **What happens to running subagents when I quit pi?**
 

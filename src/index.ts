@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
@@ -44,13 +45,29 @@ const startParams = Type.Object({
 });
 const messageParams = Type.Object({ id: Type.String(), message: Type.String() });
 
-/** A run's report, with a finished run's result truncated like any pi tool output; the full text stays in the transcript. */
-export function report(run: Run): Report {
+/** A run's report, with a finished run's result truncated like any pi tool output, pointing to `file` for the rest. */
+export function report(run: Run, file?: string): Report {
 	const base = { ...run.view(), session_path: run.sessionPath };
 	if (run.status === "running") return base;
-	const t = truncateHead(run.result);
-	const note = `\n\n[Result truncated to ${t.outputLines} of ${t.totalLines} lines. The full text is the last message in the transcript.]`;
-	return { ...base, result: t.content + (t.truncated ? note : "") };
+	return { ...base, result: truncated(run.result, file) };
+}
+
+function truncated(text: string, file: string | undefined): string {
+	const t = truncateHead(text);
+	if (!t.truncated) return t.content;
+	const rest = file ? `in ${file}` : "the last message in the transcript";
+	return `${t.content}\n\n[Result truncated to ${t.outputLines} of ${t.totalLines} lines. The full text is ${rest}.]`;
+}
+
+/** Keep a finished launch's full report in a file next to its transcript, so the model can read it in parts. */
+function writeReport(run: Run, key: string): string | undefined {
+	const file = path.join(run.opts.sessionDir, `${run.id}-${key.slice(0, 8)}.md`);
+	try {
+		fs.writeFileSync(file, run.result);
+		return file;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Where a session's subagents keep their sessions: in a directory named after its file, so /resume doesn't list them. */
@@ -61,10 +78,10 @@ function childSessionDir(sm: ExtensionContext["sessionManager"]): string {
 		: path.join(getAgentDir(), "sessions", "basic-subagents", sm.getSessionId());
 }
 
+/** A report as the model reads it. The transcript path is left out: the JSONL would flood its context. */
 function formatReport(r: Report): string {
 	const head = `${r.id} (${r.type}: ${r.description}) ${r.status}`;
-	const transcript = r.session_path ? `\ntranscript: ${r.session_path}` : "";
-	return `${head}${transcript}${r.result !== undefined ? `\n\n${r.result}` : ""}`;
+	return r.result !== undefined ? `${head}\n\n${r.result}` : head;
 }
 
 /** `promise`, or a rejection once `signal` aborts (pi waits for a tool's execute() even after Esc). */
@@ -131,7 +148,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			lingering.delete(run.id);
 		} else {
 			// Snapshot now: a resume would replace the result before delivery.
-			const r = report(run);
+			const r = report(run, writeReport(run, randomUUID()));
 			reportOf.set(run.done, r);
 			pi.appendEntry(ENTRY, { id: run.id, status: run.status });
 			outbox.push(r);

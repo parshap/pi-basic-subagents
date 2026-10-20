@@ -355,10 +355,10 @@ function finished(result: string): Run {
 	return run;
 }
 
-test("long results are truncated, pointing to the transcript", () => {
-	assert.equal(report(finished("all good")).result, "all good");
+test("long results are truncated, pointing to the report file", () => {
+	assert.equal(report(finished("all good"), "/s/sa-test-1.md").result, "all good");
 	const long = Array.from({ length: 3000 }, (_, i) => `line ${i}`).join("\n");
-	const result = report(finished(long)).result!;
+	const result = report(finished(long), "/s/sa-test-1.md").result!;
 	assert.ok(result.length < long.length);
-	assert.match(result, /The full text is the last message in the transcript/);
+	assert.match(result, /The full text is in \/s\/sa-test-1\.md\.\]$/);
 });
