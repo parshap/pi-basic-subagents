@@ -122,7 +122,7 @@ export const startRenderers = {
 	) {
 		const sep = theme.fg("muted", " · ");
 		const head = [
-			`${title("subagent_start", theme)} ${theme.fg("muted", args.subagent_type ?? "")}`,
+			`${title("subagent_start", theme)} ${theme.fg("muted", args.subagent_type ?? "general-purpose")}`,
 			theme.fg("text", args.description ?? ""),
 		];
 		if (args.model) head.push(theme.fg("muted", args.model));

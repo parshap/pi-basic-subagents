@@ -57,6 +57,14 @@ test("children at maxDepth get no tools", () => {
 	assert.equal(load(2, { basicSubagents: { maxDepth: 2 } }).tools.length, 0);
 });
 
+test("a start without a type is general-purpose", async () => {
+	const { call } = load(0);
+	const { id } = await call("subagent_start", { prompt: "slow", description: "d" });
+	const [r] = await call("subagent_wait", { ids: [id], timeout_ms: 0 });
+	assert.equal(r.type, "general-purpose");
+	await call("subagent_stop", { id });
+});
+
 test("starting beyond maxConcurrent fails", async () => {
 	const { call } = load(0, { basicSubagents: { maxConcurrent: 1 } });
 	const start = { subagent_type: "explore", prompt: "x", description: "d" };

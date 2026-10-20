@@ -31,7 +31,7 @@ Ask for it in plain words; your agent calls the tools:
 
 Starting a subagent returns right away, and running subagents show live above the editor. When one finishes, its report lands in your conversation and your agent picks it up. Your agent can steer running subagents, or resume finished ones, by sending them messages.
 
-There are two subagent types: `explore` for research, review, and verification, told not to change the project or publish anything (an instruction, not a security sandbox), and `general-purpose` for work that changes things. A subagent uses the same model as your agent unless your agent picks another.
+There are two subagent types: `explore` for research, review, and verification, told not to change the project or publish anything (an instruction, not a security sandbox), and `general-purpose`, the default, for work that changes things. A subagent uses the same model as your agent unless your agent picks another.
 
 To steer subagent usage and model choices, add guidance to your `AGENTS.md`, for example:
 
