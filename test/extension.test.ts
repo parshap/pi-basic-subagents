@@ -172,7 +172,19 @@ test("a report that settles while the parent is busy wakes it once idle", async 
 	await new Promise((resolve) => setTimeout(resolve, 50));
 	assert.equal(messages.length, 2);
 	assert.match(messages[0], /^<subagent_notification>\n.*completed[\s\S]*\nhello\n<\/subagent_notification>$/);
-	assert.match(messages[1], /^Subagent reports arrived above/);
+	assert.equal(messages[1], "Subagent reports arrived above. Continue the task they belong to, or report to the user.");
+});
+
+test("a wake names the subagents still running", async () => {
+	const { call, handlers, messages, setIdle } = load(0);
+	const start = { subagent_type: "explore", description: "d" };
+	const { id: slow } = await call("subagent_start", { ...start, prompt: "slow" });
+	await call("subagent_start", { ...start, prompt: "hello" });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	setIdle(true);
+	handlers.agent_settled();
+	assert.match(messages[1], new RegExp(`Still running: ${slow}; their reports will wake you too\\.$`));
+	await call("subagent_stop", { id: slow });
 });
 
 test("a finished run stays in the widget until a turn with its report ends; a stopped one leaves at once", async () => {

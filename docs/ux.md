@@ -70,7 +70,7 @@ A finished subagent's report, delivered as a custom message. It's the subagent s
 
 ### Wake message
 
-Not ours to style: a fixed, short user message that starts the parent's turn when reports arrive while it's idle. Pi renders it as a user message, and extensions can't change that.
+Not ours to style: a short user message that starts the parent's turn when reports arrive while it's idle. Pi renders it as a user message, and extensions can't change that.
 
 ## Color
 
