@@ -113,7 +113,10 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			pi.sendMessage(takeReports(), { triggerTurn: false });
 			// A user prompt, not sendMessage's triggerTurn, which skips before_agent_start and with it other
 			// extensions' prompt sections. Steer queues it if another prompt starts the run first.
-			pi.sendUserMessage(WAKE_TEXT, { deliverAs: "steer" });
+			// Said outright: a wake with only some of a batch's reports is when a model reaches for a wait.
+			const others = running().map((r) => r.id);
+			const more = others.length ? ` Still running: ${others.join(", ")}; their reports will wake you too.` : "";
+			pi.sendUserMessage(WAKE_TEXT + more, { deliverAs: "steer" });
 		} catch (err) {
 			session.ui.notify(`pi-basic-subagents: couldn't deliver reports: ${err}`, "error");
 		}

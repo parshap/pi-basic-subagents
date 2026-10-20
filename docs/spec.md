@@ -31,7 +31,7 @@ In pi's terms, the model's tools are `model-only` and the scripts' are `codemode
 
 ## 3. Reports
 
-When a run finishes, its report waits until the parent is idle. Then pending reports are appended as one `<subagent_notification>` custom message, and a short fixed user prompt wakes the parent. The wake is a prompt rather than `triggerTurn` so it goes through pi's normal prompt path (`before_agent_start`); if pi rejects it, the reports are already in the session. Open problem: [the wake shows up as something the user typed](issues/wake-prompt-is-a-user-message.md).
+When a run finishes, its report waits until the parent is idle. Then pending reports are appended as one `<subagent_notification>` custom message, and a short user prompt wakes the parent, naming any subagents still running: a partial batch is when models tend to wait for the rest. The wake is a prompt rather than `triggerTurn` so it goes through pi's normal prompt path (`before_agent_start`); if pi rejects it, the reports are already in the session. Open problem: [the wake shows up as something the user typed](issues/wake-prompt-is-a-user-message.md).
 
 ## 4. Runs
 
