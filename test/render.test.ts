@@ -47,6 +47,11 @@ test("a subagent_start block shows its arguments and a prompt preview, and the f
 		draw(startRenderers.renderCall(long, theme, ctx({ expanded: true }))).some((l) => l.includes("gpt-6-luna")),
 	);
 	assert.ok(!draw(startRenderers.renderCall(long, theme, ctx())).some((l) => l.includes("gpt-6-luna")));
+	const { subagent_type: _, ...untyped } = args;
+	assert.equal(
+		draw(startRenderers.renderCall(untyped, theme, ctx()))[0],
+		"subagent_start general-purpose · Audit auth · openai/gpt-6-luna:low",
+	);
 	assert.deepEqual(draw(startRenderers.renderResult({ content: [], details: { run } }, {}, theme)), [
 		"● sa-1a2b explore · Audit auth · running",
 	]);

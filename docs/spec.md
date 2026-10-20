@@ -14,7 +14,7 @@ The design principles are in the [README](../README.md#design). Beyond those:
 
 | Tool | Parameters | Returns |
 |---|---|---|
-| `subagent_start` | `subagent_type` (`explore` \| `general-purpose`), `prompt`, `description`, `model?` | `{ id }` as soon as the child is running |
+| `subagent_start` | `subagent_type?` (`explore` \| `general-purpose`, the default), `prompt`, `description`, `model?` | `{ id }` as soon as the child is running |
 | `subagent_wait` | `ids?` (default: running ones and any whose report hasn't arrived), `timeout_ms?` (0 checks status without waiting) | per id: `{ id, type, description, status, result?, session_path? }` |
 | `subagent_message` | `id`, `message` | `{ delivered: "steer" \| "resume" }` |
 | `subagent_stop` | `id` | `{ status }`: `"stopped"`, or how it had already finished |

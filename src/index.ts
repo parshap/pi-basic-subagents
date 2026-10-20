@@ -251,11 +251,11 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			description: [
 				"Start a subagent in the background and return its id immediately. A subagent is a fresh pi session in the same directory with the same tools, skills, and project context, plus a short role prompt.",
 				"Its final report arrives later as a <subagent_notification> message; call subagent_wait when you need it before continuing. Follow up or resume with subagent_message.",
-				"Types: explore: advised not to change the project (research, review, verification). general-purpose: can change things.",
+				"Types: explore: advised not to change the project (research, review, verification). general-purpose (the default): can change things.",
 				"The prompt is all the subagent sees: include the goal, relevant context, constraints, and what to report.",
 			].join(" "),
 			parameters: Type.Object({
-				subagent_type: StringEnum(Object.keys(SUBAGENT_TYPES) as SubagentType[]),
+				subagent_type: Type.Optional(StringEnum(Object.keys(SUBAGENT_TYPES) as SubagentType[])),
 				prompt: Type.String({ description: "The full, self-contained brief." }),
 				description: Type.String({ description: "3-5 words, for display." }),
 				model: Type.Optional(
@@ -277,7 +277,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 				const record: RunRecord = {
 					id,
 					sessionId: randomUUID(),
-					type: params.subagent_type,
+					type: params.subagent_type ?? "general-purpose",
 					description: params.description,
 					// The parent's directory: elsewhere, the parent project's settings and trust wouldn't apply.
 					cwd: ctx.cwd,
