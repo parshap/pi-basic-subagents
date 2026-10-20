@@ -40,29 +40,35 @@ function load(
 	handlers.session_start({}, { ui, cwd: tmp, isIdle: () => idle, isProjectTrusted: () => true, sessionManager });
 	delete process.env.PI_BASIC_SUBAGENTS_DEPTH;
 	const ctx = { cwd: tmp, isProjectTrusted: () => true, sessionManager };
-	const execute = (name: string, params: unknown) => tools.get(name).execute("call", params, undefined, undefined, ctx);
-	const call = async (name: string, params: unknown) => (await execute(name, params)).structuredContent;
+	const execute = (name: string, params: unknown, id = "call", signal?: AbortSignal) =>
+		tools.get(name).execute(id, params, signal, undefined, ctx);
+	/** The model's call: its details, and for a call about one subagent, that subagent's view. */
+	const call = async (name: string, params: unknown) => {
+		const { details } = await execute(name, params);
+		return details.run ?? details;
+	};
 	const callText = async (name: string, params: unknown) => (await execute(name, params)).content[0].text;
+	/** A codemode script's call, which resolves to the structured result. */
+	const script = async (name: string, params: unknown, signal?: AbortSignal) =>
+		(await execute(name, params, "codemode/1", signal)).structuredContent;
 	const setIdle = (value: boolean) => (idle = value);
-	return { tools: [...tools.keys()], handlers, messages, call, callText, setIdle, drawWidget };
+	return { tools: [...tools.keys()], handlers, messages, call, callText, script, setIdle, drawWidget };
 }
 
 test("main session gets the tools", () => {
-	assert.deepEqual(load(0).tools, ["subagent_start", "subagent_wait", "subagent_message", "subagent_stop"]);
+	assert.deepEqual(load(0).tools, [
+		"subagent_start",
+		"subagent_run",
+		"subagent_message",
+		"subagent_continue",
+		"subagent_stop",
+	]);
 });
 
 test("children at maxDepth get no tools", () => {
 	assert.deepEqual(load(1).tools, []);
-	assert.equal(load(1, { basicSubagents: { maxDepth: 2 } }).tools.length, 4);
+	assert.equal(load(1, { basicSubagents: { maxDepth: 2 } }).tools.length, 5);
 	assert.equal(load(2, { basicSubagents: { maxDepth: 2 } }).tools.length, 0);
-});
-
-test("a start without a type is general-purpose", async () => {
-	const { call } = load(0);
-	const { id } = await call("subagent_start", { prompt: "slow", description: "d" });
-	const [r] = await call("subagent_wait", { ids: [id], timeout_ms: 0 });
-	assert.equal(r.type, "general-purpose");
-	await call("subagent_stop", { id });
 });
 
 test("starting beyond maxConcurrent fails", async () => {
@@ -76,13 +82,83 @@ test("starting beyond maxConcurrent fails", async () => {
 	await call("subagent_stop", { id: other.id });
 });
 
-test("a report returned by subagent_wait isn't also sent as a message", async () => {
-	const { call, handlers, messages } = load(0);
-	const { id } = await call("subagent_start", { subagent_type: "explore", prompt: "hello", description: "d" });
-	const [r] = await call("subagent_wait", { ids: [id] });
+test("a start without a type is general-purpose", async () => {
+	const { call } = load(0);
+	const run = await call("subagent_start", { prompt: "slow", description: "d" });
+	assert.equal(run.type, "general-purpose");
+	await call("subagent_stop", { id: run.id });
+});
+
+test("a direct start returns at once, telling the model not to wait", async () => {
+	const { call, callText } = load(0);
+	const start = { subagent_type: "explore", prompt: "slow", description: "d" };
+	const r = await call("subagent_start", start);
+	assert.equal(r.status, "running");
+	const text = await callText("subagent_start", start);
+	assert.match(text, /^Started sa-\w+; its report will wake you\. Do other work or end your turn\.$/);
+	await call("subagent_stop", { id: r.id });
+	await call("subagent_stop", { id: text.split(" ")[1].slice(0, -1) });
+});
+
+test("a script's start resolves with the report, which isn't also sent as a message", async () => {
+	const { script, handlers, messages, setIdle } = load(0);
+	const r = await script("subagent_run", { subagent_type: "explore", prompt: "hello", description: "d" });
+	assert.equal(r.status, "completed");
 	assert.equal(r.result, "hello");
+	setIdle(true);
 	handlers.agent_settled();
 	await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.deepEqual(messages, []);
+});
+
+test("a script's continue resumes a finished subagent and resolves with its next report, but won't steer", async () => {
+	const { call, script } = load(0);
+	const { id } = await script("subagent_run", { subagent_type: "explore", prompt: "first", description: "d" });
+	assert.equal((await script("subagent_continue", { id, message: "second" })).result, "second");
+	await call("subagent_message", { id, message: "slow" });
+	await assert.rejects(script("subagent_continue", { id, message: "more" }), new RegExp(`${id} is running`));
+	await call("subagent_stop", { id });
+});
+
+test("cancelling a script's continue stops the subagent, even while it starts up", async () => {
+	const { script, call, handlers, messages, setIdle } = load(0);
+	const { id } = await script("subagent_run", { subagent_type: "explore", prompt: "first", description: "d" });
+	const stop = new AbortController();
+	const waiting = script("subagent_continue", { id, message: "second" }, stop.signal);
+	setTimeout(() => stop.abort(), 10); // While its child starts.
+	await assert.rejects(waiting, new RegExp(`^Error: Cancelled; ${id} stopped`));
+	assert.equal((await call("subagent_stop", { id })).status, "stopped");
+	setIdle(true);
+	handlers.agent_settled();
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.deepEqual(messages, []);
+});
+
+test("a script awaiting a resume gets that launch's report, leaving an earlier one queued", async () => {
+	const { call, script, handlers, messages, setIdle } = load(0);
+	const start = { subagent_type: "explore", description: "d" };
+	const { id } = await call("subagent_start", { ...start, prompt: "first" });
+	await new Promise((resolve) => setTimeout(resolve, 300)); // Queued: the parent is busy.
+	const resumed = script("subagent_continue", { id, message: "slow" });
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	await call("subagent_stop", { id });
+	assert.equal((await resumed).status, "stopped");
+	setIdle(true);
+	handlers.agent_settled();
+	assert.match(messages[0], /\nfirst\n/);
+});
+
+test("cancelling a script's call stops the subagent it started, so no report arrives later", async () => {
+	const { script, handlers, messages, setIdle } = load(0);
+	process.env.FAKE_RUN_MS = "600";
+	const stop = new AbortController();
+	const waiting = script("subagent_run", { subagent_type: "explore", prompt: "hello", description: "d" }, stop.signal);
+	delete process.env.FAKE_RUN_MS;
+	setTimeout(() => stop.abort(), 400); // Once it's running.
+	await assert.rejects(waiting, /^Error: Cancelled; sa-\w+ stopped\. subagent_message resumes it\.$/);
+	await new Promise((resolve) => setTimeout(resolve, 500));
+	setIdle(true);
+	handlers.agent_settled();
 	assert.deepEqual(messages, []);
 });
 
@@ -100,7 +176,7 @@ test("a report that settles while the parent is busy wakes it once idle", async 
 });
 
 test("a finished run stays in the widget until a turn with its report ends; a stopped one leaves at once", async () => {
-	const { call, handlers, setIdle, drawWidget } = load(0);
+	const { call, script, handlers, setIdle, drawWidget } = load(0);
 	const start = { subagent_type: "explore", description: "d" };
 
 	// Delivered by a wake.
@@ -113,10 +189,9 @@ test("a finished run stays in the widget until a turn with its report ends; a st
 	handlers.agent_settled(); // The woken turn ends.
 	assert.equal(drawWidget(), undefined);
 
-	// Returned by subagent_wait in a busy parent's turn.
+	// Returned to a script in a busy parent's turn.
 	setIdle(false);
-	const waited = await call("subagent_start", { ...start, prompt: "hi" });
-	await call("subagent_wait", { ids: [waited.id] });
+	const waited = await script("subagent_run", { ...start, prompt: "hi" });
 	assert.deepEqual(drawWidget(), [`✓ ${waited.id} d · completed`]);
 	handlers.agent_settled();
 	assert.equal(drawWidget(), undefined);
@@ -129,54 +204,47 @@ test("a finished run stays in the widget until a turn with its report ends; a st
 	assert.equal(drawWidget(), undefined);
 });
 
-test("a reopened session knows earlier runs: interrupted ones stopped and resumable, finished ones point to their transcript", async () => {
+test("a reopened session knows earlier runs: interrupted ones resume", async () => {
 	const entries: any[] = [];
 	const first = load(0, {}, entries);
-	const start = { subagent_type: "explore", description: "d" };
-	const { id: done } = await first.call("subagent_start", { ...start, prompt: "finished" });
-	await first.call("subagent_wait", { ids: [done] });
-	const { id: cut } = await first.call("subagent_start", { ...start, prompt: "slow, cut short" });
+	const { id: cut } = await first.call("subagent_start", {
+		subagent_type: "explore",
+		prompt: "slow",
+		description: "d",
+	});
 	await first.handlers.session_shutdown();
 
 	const second = load(0, {}, entries);
-	assert.deepEqual(second.messages, []);
-	assert.equal(
-		await second.callText("subagent_wait", {}),
-		`No subagents are running. Earlier ones: ${done} completed, ${cut} stopped. Pass their ids for reports.`,
-	);
-	const [a, b] = await second.call("subagent_wait", { ids: [done, cut] });
-	assert.equal(a.status, "completed");
-	assert.match(a.result, /last message in the transcript/);
-	assert.match(b.result, /Stopped when the parent session ended/);
-	assert.match(b.session_path, new RegExp(`_${entries.find((e) => e.data.id === cut).data.sessionId}\\.jsonl$`));
-	assert.equal(
-		await second.call("subagent_message", { id: cut, message: "go on" }).then((r: any) => r.delivered),
-		"resume",
-	);
-	const [c] = await second.call("subagent_wait", { ids: [cut] });
-	assert.equal(c.result, "go on");
+	const resumed = await second.script("subagent_continue", { id: cut, message: "go on" });
+
+	assert.equal(resumed.result, "go on");
 });
 
 test("a fork doesn't take over its original's subagents", async () => {
 	const entries: any[] = [];
 	const first = load(0, {}, entries);
-	const { id } = await first.call("subagent_start", { subagent_type: "explore", prompt: "finished", description: "d" });
-	await first.call("subagent_wait", { ids: [id] });
+	const { id } = await first.script("subagent_run", {
+		subagent_type: "explore",
+		prompt: "finished",
+		description: "d",
+	});
 	await first.handlers.session_shutdown();
 	const fork = load(0, {}, entries, path.join(tmp, "fork.jsonl"));
-	await assert.rejects(fork.call("subagent_wait", { ids: [id] }), /Unknown subagent id/);
+	await assert.rejects(fork.call("subagent_stop", { id }), /Unknown subagent id/);
 	await assert.rejects(fork.call("subagent_message", { id, message: "more" }), /Unknown subagent id/);
 });
 
 test("a resumed run cut short by shutdown reopens as stopped", async () => {
 	const entries: any[] = [];
 	const first = load(0, {}, entries);
-	const { id } = await first.call("subagent_start", { subagent_type: "explore", prompt: "finished", description: "d" });
-	await first.call("subagent_wait", { ids: [id] });
+	const { id } = await first.script("subagent_run", {
+		subagent_type: "explore",
+		prompt: "finished",
+		description: "d",
+	});
 	await first.call("subagent_message", { id, message: "slow more" });
 	await first.handlers.session_shutdown();
-	const [r] = await load(0, {}, entries).call("subagent_wait", { ids: [id] });
-	assert.equal(r.status, "stopped");
+	assert.equal((await load(0, {}, entries).call("subagent_stop", { id })).status, "stopped");
 });
 
 test("a message that arrives as a run finishes resumes it without losing the first report", async () => {
@@ -203,7 +271,7 @@ test("reports held back by /compact arrive once it's done", async () => {
 
 test("a start that fails leaves no run behind", async () => {
 	const entries: any[] = [];
-	const { call } = load(0, {}, entries);
+	const { call, drawWidget } = load(0, {}, entries);
 	const fakePi = process.argv[1];
 	process.argv[1] = path.join(tmp, "broken-pi.mjs");
 	fs.writeFileSync(process.argv[1], "process.exit(3);");
@@ -215,13 +283,12 @@ test("a start that fails leaves no run behind", async () => {
 	} finally {
 		process.argv[1] = fakePi;
 	}
-	assert.equal(await load(0, {}, entries).callText("subagent_wait", {}), "No subagents are running.");
+	assert.equal(drawWidget(), undefined);
 });
 
 test("a resume that fails to start fails the message, and its report isn't sent again", async () => {
-	const { call, handlers, messages, setIdle } = load(0);
-	const { id } = await call("subagent_start", { subagent_type: "explore", prompt: "first", description: "d" });
-	await call("subagent_wait", { ids: [id] });
+	const { call, script, handlers, messages, setIdle } = load(0);
+	const { id } = await script("subagent_run", { subagent_type: "explore", prompt: "first", description: "d" });
 	const fakePi = process.argv[1];
 	process.argv[1] = path.join(tmp, "broken-pi.mjs");
 	fs.writeFileSync(process.argv[1], "process.exit(3);");

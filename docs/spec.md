@@ -6,30 +6,32 @@ What pi-basic-subagents does: the behavior contract. How it's drawn is in [ux.md
 
 The design principles are in the [README](../README.md#design). Beyond those:
 
-- Foreground is start then wait, not a second mode.
+- The model's tools never block, so it stays free to talk to the user; reports wake it. Scripts wait through their own tools, as Claude Code's workflow scripts use `agent()`. Why: [research memo](research/2026-10-20-subagent-waiting.md).
 - The two types differ only in their role prompt; specialization comes from skills.
 - Not included: chains or workflow definitions (codemode scripts cover them), custom agent files, per-type tool restrictions, worktree isolation, or a channel for a subagent to ask its parent questions.
 
 ## 2. Tools
 
-| Tool | Parameters | Returns |
-|---|---|---|
-| `subagent_start` | `subagent_type?` (`explore` \| `general-purpose`, the default), `prompt`, `description`, `model?` | `{ id }` as soon as the child is running |
-| `subagent_wait` | `ids?` (default: running ones and any whose report hasn't arrived), `timeout_ms?` (0 checks status without waiting) | per id: `{ id, type, description, status, result?, session_path? }` |
-| `subagent_message` | `id`, `message` | `{ delivered: "steer" \| "resume" }` |
-| `subagent_stop` | `id` | `{ status }`: `"stopped"`, or how it had already finished |
+| Tool | For | Parameters | Returns |
+|---|---|---|---|
+| `subagent_start` | the model | `subagent_type?` (`explore` \| `general-purpose`, the default), `prompt`, `description`, `model?` | as soon as the child is running |
+| `subagent_message` | the model | `id`, `message` | once the child accepts it, saying whether it steered or resumed |
+| `subagent_stop` | the model | `id` | its status: stopped, or how it had already finished |
+| `subagent_run` | scripts | as `subagent_start` | once it finishes: the report, `{ id, type, description, status, result?, session_path? }` |
+| `subagent_continue` | scripts | as `subagent_message` | the run's next report. It only resumes, so a running id fails. |
+
+In pi's terms, the model's tools are `model-only` and the scripts' are `codemode`: scripts can't call the model's tools, and the model sees the scripts' tools only in codemode's description. With codemode's `only` mode, the model's tools stay declared, since pi hides only tools scripts can call; that keeps a way to delegate without blocking.
 
 - **Types.** Both types get a role prompt: complete the task and end with a concise report of what was done and the findings and evidence, don't undo changes it didn't make (others may share the directory), and make a reasonable guess rather than ask, stopping only when truly stuck. `explore` adds not changing the project or publishing or sending anything. That rule is advisory: nothing enforces it.
 - **Model.** `model` is `provider/id` with an optional `:thinking` suffix. It defaults to the parent's model and thinking level.
 - **Messages.** `subagent_message` steers a running subagent. A finished or stopped one resumes from its session with full history and reports again on completion. A resume counts toward `maxConcurrent`.
-- **Waiting.** Cancelling a wait (Esc, or a codemode script ending) cancels only the wait. With no ids and nothing running, `subagent_wait` lists the session's earlier subagents.
-- **Ordering.** As with Claude Code's tools that change state, `subagent_message` and `subagent_stop` run in order with the other calls in their message, so a `subagent_wait` after them sees their effect. pi can only order a whole message, so its other calls run one at a time too. `subagent_start` and `subagent_wait` run in parallel.
+- **Scripts.** `subagent_run` and `subagent_continue` wait for the run, like `await agent()` in a Claude Code workflow script, and the report they return isn't sent again. Like any tool call, a waiting script holds the user's messages until it ends. Cancelling the call (Esc, the script's deadline, or the script ending first) stops the subagent, as aborting a Claude Code workflow does, so its report can't flood the parent later.
+- **Ordering.** As with Claude Code's tools that change state, `subagent_message` and `subagent_stop` run in order with the other calls in their message, so calls on one subagent take effect in the order given. pi can only order a whole message, so its other calls run one at a time too. `subagent_start` calls run in parallel.
 - **Truncation.** Results over pi's tool-output limits (2000 lines or 50KB) are truncated; the full text is the last message in the transcript.
-- **Codemode.** All four tools work from codemode, since runs belong to the extension and not to the tool call.
 
 ## 3. Reports
 
-When a run finishes, its report waits until the parent is idle. Then pending reports are appended to the session as one `<subagent_notification>` custom message, and a short fixed user prompt wakes the parent. The wake is a prompt rather than a custom message with `triggerTurn` so it goes through pi's normal prompt path (`before_agent_start`). If pi rejects the wake, the reports are already in the session. A report that `subagent_wait` returns first isn't sent again. Open problem: [the wake shows up as something the user typed](issues/wake-prompt-is-a-user-message.md).
+When a run finishes, its report waits until the parent is idle. Then pending reports are appended as one `<subagent_notification>` custom message, and a short fixed user prompt wakes the parent. The wake is a prompt rather than `triggerTurn` so it goes through pi's normal prompt path (`before_agent_start`); if pi rejects it, the reports are already in the session. Open problem: [the wake shows up as something the user typed](issues/wake-prompt-is-a-user-message.md).
 
 ## 4. Runs
 
@@ -42,12 +44,12 @@ When a run finishes, its report waits until the parent is idle. Then pending rep
 
 ## 5. Sessions
 
-When the parent session shuts down (exit, `/reload`, `/new`, `/resume`), running children are aborted and terminated. Each run and its status changes are recorded in the parent session as custom entries outside the model's context, so subagent ids keep working when the session is reopened: `subagent_wait` reports runs cut short by the exit as stopped and points finished ones to their transcripts, and `subagent_message` resumes them. A fork (`/fork`) doesn't take over its original's subagents, so the two never share a child session; their reports stay in the copied conversation.
+When the parent session shuts down (exit, `/reload`, `/new`, `/resume`), running children are aborted and terminated. Each run and its status changes are recorded in the parent session as custom entries outside the model's context, so subagent ids keep working when the session is reopened, and `subagent_message` resumes runs the exit cut short. A fork (`/fork`) doesn't take over its original's subagents, so the two never share a child session; their reports stay in the copied conversation.
 
 ## 6. Configuration
 
 The settings, their defaults, and where they go are in the [README](../README.md#configuration). Beyond those:
 
 - Starting or resuming a subagent beyond `maxConcurrent` fails until one finishes.
-- A session at `maxDepth` doesn't register the four tools at all.
+- A session at `maxDepth` doesn't register the tools at all.
 - Invalid values are ignored with a warning.

@@ -10,8 +10,12 @@ const root = path.resolve(import.meta.dirname, "..");
 const piPackage = path.join(root, "node_modules/@earendil-works/pi-coding-agent");
 const piCli = path.join(piPackage, JSON.parse(fs.readFileSync(path.join(piPackage, "package.json"), "utf8")).bin.pi);
 
-test("a real pi starts a subagent in a real pi child and gets its report", { timeout: 120_000 }, async () => {
+test("a real pi gets reports from real pi children: awaited in a script, and by wake", {
+	timeout: 120_000,
+}, async () => {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-basic-subagents-"));
+	fs.mkdirSync(path.join(tmp, "agent"));
+	fs.writeFileSync(path.join(tmp, "agent/settings.json"), JSON.stringify({ defaultTools: ["+codemode"] }));
 	const args = [
 		...["--mode", "rpc", "--session-dir", path.join(tmp, "sessions")],
 		...["-e", path.join(root, "src/index.ts"), "-e", path.join(root, "test/faux-provider.ts")],
@@ -21,6 +25,7 @@ test("a real pi starts a subagent in a real pi child and gets its report", { tim
 		...process.env,
 		PI_CODING_AGENT_DIR: path.join(tmp, "agent"),
 		PI_OFFLINE: "1",
+		PI_BASIC_SUBAGENTS_DEPTH: undefined, // Run from a subagent, the parent would get no tools.
 		PI_SKIP_VERSION_CHECK: "1",
 	};
 	const pi = spawn(process.execPath, [piCli, ...args], { cwd: tmp, env, stdio: ["pipe", "pipe", "pipe"] });
@@ -39,7 +44,8 @@ test("a real pi starts a subagent in a real pi child and gets its report", { tim
 				if (event.type === "message_end" && event.message.role === "assistant") {
 					assistantTexts.push(event.message.content.map((c: any) => c.text ?? "").join(""));
 				}
-				if (event.type === "agent_settled") resolve();
+				// The run the second report wakes.
+				if (event.type === "agent_settled" && assistantTexts.at(-1)?.startsWith("parent saw")) resolve();
 			}
 		});
 		pi.once("close", (code) => reject(new Error(`pi exited (${code}):\n${stderr}`)));
@@ -49,9 +55,10 @@ test("a real pi starts a subagent in a real pi child and gets its report", { tim
 		pi.stdin.write(`${JSON.stringify({ id: "1", type: "prompt", message: "go" })}\n`);
 		await settled;
 		const final = assistantTexts.at(-1) ?? "";
-		assert.match(final, /^parent saw: /);
-		assert.match(final, /completed/);
-		assert.match(final, /pong: ping/);
+		assert.match(
+			final,
+			/^parent saw: Script completed[\s\S]*\npong: scripted \| <subagent_notification>[\s\S]*completed[\s\S]*pong: direct/,
+		);
 	} finally {
 		pi.stdin.end();
 		pi.kill();

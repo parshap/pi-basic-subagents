@@ -15,7 +15,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { type Run, type RunView, STATUSES, type Status } from "./run.ts";
 
-/** A finished (or running) subagent's report, for wait results and report messages. */
+/** A finished (or running) subagent's report, for report messages. */
 export interface ReportView extends RunView {
 	result?: string;
 	session_path?: string;
@@ -140,19 +140,6 @@ export const startRenderers = {
 	renderResult(result: Result<{ run: RunView }>, _opts: unknown, theme: Theme) {
 		if (!result.details?.run) return textResult(result, theme);
 		return lines([runLine(result.details.run, theme)], theme);
-	},
-};
-
-export const waitRenderers = {
-	renderCall(args: { ids?: string[]; timeout_ms?: number }, theme: Theme, ctx: Ctx) {
-		const ids = args.ids?.length ? args.ids.join(", ") : "all";
-		const timeout = args.timeout_ms !== undefined ? theme.fg("muted", ` · timeout ${args.timeout_ms / 1000}s`) : "";
-		return header(`${title("subagent_wait", theme)} ${theme.fg("text", ids)}${timeout}`, theme, ctx);
-	},
-	renderResult(result: Result<{ reports: ReportView[] }>, _opts: unknown, theme: Theme, ctx: Ctx) {
-		const reports = result.details?.reports;
-		if (!reports?.length) return textResult(result, theme);
-		return reportList(reports, ctx.expanded, theme, "toolOutput");
 	},
 };
 

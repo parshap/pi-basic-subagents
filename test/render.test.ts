@@ -8,7 +8,6 @@ import {
 	runLine,
 	shortModel,
 	startRenderers,
-	waitRenderers,
 	widgetLine,
 	widgetLines,
 } from "../src/render.ts";
@@ -55,18 +54,6 @@ test("a subagent_start block shows its arguments and a prompt preview, and the f
 	assert.deepEqual(draw(startRenderers.renderResult({ content: [], details: { run } }, {}, theme)), [
 		"● sa-1a2b explore · Audit auth · running",
 	]);
-});
-
-test("a subagent_wait block lists Run lines, and full reports expanded", () => {
-	const reports = [{ ...run, status: "completed" as const, result: "All good.", session_path: "/s/child.jsonl" }];
-	const result = { content: [], details: { reports } };
-	assert.deepEqual(draw(waitRenderers.renderResult(result, {}, theme, ctx())), [
-		"✓ sa-1a2b explore · Audit auth · completed",
-	]);
-	const expanded = draw(waitRenderers.renderResult(result, {}, theme, ctx({ expanded: true })));
-	assert.ok(expanded.some((l) => l.includes("/s/child.jsonl")) && expanded.some((l) => l.includes("All good.")));
-	const none = { content: [{ type: "text", text: "No subagents are running." }], details: { reports: [] } };
-	assert.deepEqual(draw(waitRenderers.renderResult(none, {}, theme, ctx())), ["No subagents are running."]);
 });
 
 test("a subagent_message block shows the message, and how it was delivered", () => {
