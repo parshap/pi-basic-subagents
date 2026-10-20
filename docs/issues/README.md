@@ -4,3 +4,4 @@ Open problems, one per file and undated: the problem and its evidence, not the f
 
 - [wake-prompt-is-a-user-message.md](wake-prompt-is-a-user-message.md): the wake for reports shows up as something the user typed
 - [no-session-subagents-are-saved.md](no-session-subagents-are-saved.md): a `--no-session` parent's subagents are saved anyway
+- [script-calls-past-max-concurrent-fail.md](script-calls-past-max-concurrent-fail.md): a script awaiting more subagents than `maxConcurrent` gets the extra calls rejected
