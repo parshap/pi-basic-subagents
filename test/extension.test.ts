@@ -220,17 +220,17 @@ test("a finished run stays in the widget until a turn with its report ends; a st
 	// Delivered by a wake.
 	const { id } = await call("subagent_start", { ...start, prompt: "hello" });
 	await new Promise((resolve) => setTimeout(resolve, 300));
-	assert.deepEqual(drawWidget(), [`✓ ${id} d · completed`]);
+	assert.match(drawWidget()![0], new RegExp(`^✓ ${id} d · completed · \\d+(?:m\\d+)?s$`));
 	setIdle(true);
 	handlers.agent_settled(); // Delivers the report and wakes the parent.
-	assert.deepEqual(drawWidget(), [`✓ ${id} d · completed`]);
+	assert.match(drawWidget()![0], new RegExp(`^✓ ${id} d · completed · \\d+(?:m\\d+)?s$`));
 	handlers.agent_settled(); // The woken turn ends.
 	assert.equal(drawWidget(), undefined);
 
 	// Returned to a script in a busy parent's turn.
 	setIdle(false);
 	const waited = await script("subagent_run", { ...start, prompt: "hi" });
-	assert.deepEqual(drawWidget(), [`✓ ${waited.id} d · completed`]);
+	assert.match(drawWidget()![0], new RegExp(`^✓ ${waited.id} d · completed · \\d+(?:m\\d+)?s$`));
 	handlers.agent_settled();
 	assert.equal(drawWidget(), undefined);
 
@@ -387,6 +387,54 @@ function finished(result: string): Run {
 	run.result = result;
 	return run;
 }
+
+test("context size survives reopening, and a resume replaces it", async () => {
+	const entries: any[] = [];
+	const app = load(0, {}, entries);
+	process.env.FAKE_USAGE = JSON.stringify({ input: 42, output: 8, cacheRead: 0, cacheWrite: 0, totalTokens: 50 });
+	let id: string;
+	try {
+		({ id } = await app.script("subagent_run", {
+			subagent_type: "explore",
+			prompt: "hello",
+			description: "d",
+			model: "openai/gpt-6-luna:low",
+		}));
+	} finally {
+		delete process.env.FAKE_USAGE;
+	}
+	const first = await app.call("subagent_stop", { id });
+	await app.handlers.session_shutdown();
+	process.env.FAKE_USAGE = JSON.stringify({ input: 62, output: 8, cacheRead: 0, cacheWrite: 0, totalTokens: 70 });
+	const reopened = load(0, {}, JSON.parse(JSON.stringify(entries)));
+	delete process.env.FAKE_USAGE;
+	const restored = await reopened.call("subagent_stop", { id });
+	assert.equal(restored.contextTokens, 50);
+	assert.equal(first.contextTokens, 50);
+	assert.equal(restored.elapsedMs, first.elapsedMs);
+	assert.equal(restored.model, first.model);
+	await reopened.script("subagent_continue", { id, message: "again" });
+	assert.equal((await reopened.call("subagent_stop", { id })).contextTokens, 70);
+	assert.equal(restored.contextTokens, 50); // Earlier snapshots don't change.
+	await reopened.handlers.session_shutdown();
+});
+
+test("a run cut short by shutdown keeps its last saved context size", async () => {
+	const entries: any[] = [];
+	const app = load(0, {}, entries);
+	process.env.FAKE_USAGE = JSON.stringify({ input: 42, output: 8, cacheRead: 0, cacheWrite: 0, totalTokens: 50 });
+	let id: string;
+	try {
+		({ id } = await app.script("subagent_run", { subagent_type: "explore", prompt: "hello", description: "d" }));
+	} finally {
+		delete process.env.FAKE_USAGE;
+	}
+	await app.call("subagent_message", { id, message: "slow again" });
+	await app.handlers.session_shutdown();
+	const reopened = load(0, {}, JSON.parse(JSON.stringify(entries)));
+	assert.equal((await reopened.call("subagent_stop", { id })).contextTokens, 50);
+	await reopened.handlers.session_shutdown();
+});
 
 test("long results are truncated, pointing to the report file", () => {
 	assert.equal(report(finished("all good"), "/s/sa-test-1.md").result, "all good");

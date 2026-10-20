@@ -25,7 +25,8 @@ The atom: one subagent on one line.
 `<glyph> <id> <type> · <description> · <state>`
 
 - **id** bold, **type** muted, **description** text.
-- **state** is what the subagent is doing while it runs (current tool or `thinking`, elapsed, its context size in tokens), and its status word once it's done.
+- **state** is the current tool or `thinking` while running, and the status word once done. Failed rows add the error's first nonempty line after `failed:`. The model, the child's current context size (`132.3k ctx`), and elapsed time follow, with time last; missing metrics are omitted.
+- **Expanded details** show the full model name. Duration covers the latest launch and freezes when it finishes.
 - Cut to the width with a `muted` `…`; never wraps.
 
 ### Widget
@@ -33,14 +34,14 @@ The atom: one subagent on one line.
 Live Run lines for running and recently finished subagents, above the editor, in start order. No background, no header. Present only while it has rows; it's the only live surface.
 
 ```
-✓ sa-1a2b Audit auth flow · completed
-● sa-3c4d Map callers · opus-4-1:high · bash npm test --wat… · 1m12s · 48.3k tokens
+✓ sa-1a2b Audit auth flow · completed · opus-5-5:high · 72.1k ctx · 48s
+● sa-3c4d Map callers · bash npm test --wat… · opus-4-1:high · 132.3k ctx · 1m12s
 ```
 
 - **Finished rows stay until the parent ends a turn that has their reports** (the wake, or one whose script got them), so a batch shows its progress and clears once the parent has dealt with it. A stopped subagent leaves at once: whoever stopped it already knows.
 - **At most 5 lines.** With more than 5, it shows 4 rows in start order, preferring running subagents over finished ones, then a line counting the rest by status: a `muted` `+N more`, then each status's glyph and `muted` count and name (`+16 more · ● 15 running · ✗ 1 failed`). It stays short, so a failure isn't cut off at usual widths.
 - **No type, and no `·` after the id.** The line is for watching activity; the type is in the `subagent_start` block.
-- **The model's short name** starts the state: the id and thinking level without the provider path and the parts that rarely tell two models apart (dated snapshots, `-latest`, `claude-` before a family name, and Bedrock's region, vendor, and version). It's a display heuristic, and each rule applies only where it can't mangle a name, so some names stay long: `deepseek.v3`, not `v3`.
+- **The model's short name** follows the activity/status: the id and thinking level without the provider path and the parts that rarely tell two models apart (dated snapshots, `-latest`, `claude-` before a family name, and Bedrock's region, vendor, and version). It's a display heuristic, and each rule applies only where it can't mangle a name, so some names stay long: `deepseek.v3`, not `v3`.
 - **The current tool's arguments** follow its name: string arguments on one line, `path` first. They take only the width the rest of the line leaves, so they never push anything off, and they're left out when fewer than 3 columns are free besides the space before them. Control characters show escaped (`\x1b`), so arguments can't drive the terminal. With parallel calls, it's the latest one still running.
 - The tool name is part of the muted state here, not `toolTitle`.
 
@@ -55,14 +56,16 @@ One per tool call the parent model makes, drawn inside pi's tool shell.
 |---|---|---|---|---|
 | `subagent_start` | type · description · model, then the first 2 lines of the prompt (muted) | all arguments, the prompt as Markdown | the new Run line | same |
 | `subagent_message` | id, then the first line of the message (muted) | the full message | `delivered as steer` or `delivered as resume` | same |
-| `subagent_stop` | id | same | the Run line with its status | same |
+| `subagent_stop` | id | same | the Run line with its status | Run line, model, transcript link, any failure reason |
+
+The widget shows current state; tool results and reports show what they returned and never change.
 
 ### Report block
 
 A finished subagent's report, delivered as a custom message. It's the subagent speaking into the conversation, not a tool call, so it uses pi's custom-message frame.
 
 - **Collapsed**: a Run line per report, then a dim `(Ctrl+O to expand)`.
-- **Expanded**: per report, the Run line, the transcript path as a link, then the result as Markdown. Reports are separated by a blank line.
+- **Expanded**: per report, the Run line, full model, the transcript path as a link, any failure reason, then the result as Markdown. Reports are separated by a blank line.
 
 ### Toast
 
@@ -95,7 +98,7 @@ Pi applies these; we only pick the shape. A tool block's background is about the
 | failed | `✗` | `error` |
 | stopped | `■` | `warning` |
 
-The glyph and the status word take the color; the rest of the Run line doesn't.
+The glyph, status word, and short failure reason take the color; metadata stays muted.
 
 ### Text
 
@@ -104,7 +107,7 @@ The glyph and the status word take the color; the rest of the Run line doesn't.
 | Tool names | `toolTitle`, bold |
 | Primary text (ids, descriptions) | `text` |
 | Markdown bodies (prompts, messages, results) | `toolOutput` in tool blocks, `customMessageText` in report blocks, as in pi's own |
-| Secondary metadata (type, model, elapsed, tokens, separators) | `muted` |
+| Secondary metadata (type, model, context size, elapsed, separators) | `muted` |
 | Hints (`Ctrl+O to expand`) | `dim` |
 
 ## Copy

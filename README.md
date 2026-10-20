@@ -3,8 +3,8 @@
 Minimal subagents for [pi](https://pi.dev), where each subagent is a regular pi session with the same tools and access as your agent, rather than task-specific restricted subagents.
 
 ```
-● sa-1a2b Audit auth flow · opus-5-5:high · bash rg -n "session" src/auth · 1m12s · 48.3k tokens
-● sa-3c4d Fix flaky upload test · gpt-6-luna:max · thinking · 24s · 12.1k tokens
+● sa-1a2b Audit auth flow · bash rg -n "session" src/auth · opus-5-5:high · 132.3k ctx · 1m12s
+● sa-3c4d Fix flaky upload test · thinking · gpt-6-luna:max · 24.1k ctx · 24s
 ```
 
 ## Design
@@ -78,7 +78,7 @@ The most used pi subagent packages, and the example that ships with pi, as of Oc
 | Subagent can ask your agent questions | no (stops and reports) | yes | no | no | no |
 | Workflows & orchestration | via codemode | custom scripts, parallel, lanes | custom scripts, parallel, pipelines | nested subagents | parallel, chains |
 | Manage git worktrees | no | yes | yes | no | no |
-| Source lines | ~980 | ~101k | ~21k | ~13k | ~1.1k |
+| Source lines | ~1.1k | ~101k | ~21k | ~13k | ~1.1k |
 
 ## FAQ
 

@@ -28,12 +28,13 @@ In pi's terms, the model's tools are `model-only` and the scripts' are `codemode
 - **Scripts.** `subagent_run` and `subagent_continue` wait for the run, like `await agent()` in a Claude Code workflow script, and the report they return isn't sent again. Like any tool call, a waiting script holds the user's messages until it ends. Cancelling the call (Esc, the script's deadline, or the script ending first) stops the subagent, as aborting a Claude Code workflow does, so its report can't flood the parent later.
 - **Ordering.** As with Claude Code's tools that change state, `subagent_message` and `subagent_stop` run in order with the other calls in their message, so calls on one subagent take effect in the order given. pi can only order a whole message, so its other calls run one at a time too. `subagent_start` calls run in parallel.
 - **Truncation.** Results over pi's tool-output limits (2000 lines or 50KB) are truncated, pointing to the report's file for the rest.
+- **Metrics.** For the UI only, a run keeps its model, duration (of its latest launch), and context size: the tokens in its latest model response, as pi's footer counts them. It carries across resumes and reopening, and drops after a compaction once the next response arrives.
 
 ## 3. Reports
 
 When a run finishes, its full report is saved to a file next to its transcript (`<id>-<key>.md`) and waits until the parent is idle. Then pending reports are appended as one `<subagent_notification>` custom message, and a short user prompt wakes the parent, naming any subagents still running: a partial batch is when models tend to wait for the rest. The wake is a prompt rather than `triggerTurn` so it goes through pi's normal prompt path (`before_agent_start`); if pi rejects it, the reports are already in the session. Open problem: [the wake shows up as something the user typed](issues/wake-prompt-is-a-user-message.md).
 
-- **What the model reads.** A report is its status line, then its result. A report leaves out the transcript path: the JSONL would flood the parent's context, and the report's file covers reading more. The UI still links the transcript.
+- **What the model reads.** A report is its status line, then its result. A report leaves out the UI's metrics and the transcript path: the JSONL would flood the parent's context, and the report's file covers reading more. The UI still links the transcript.
 - **Missed reports.** On reopen there may be many, so each is just its status line and `Report: <file> (N lines)`, in the UI too.
 
 ## 4. Runs

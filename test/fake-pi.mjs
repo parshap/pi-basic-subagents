@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const env = process.env;
-// A minimal session file like pi's, for code that reads finished transcripts.
+// A session header lets restoration find the child by id.
 const arg = (name) => process.argv[process.argv.indexOf(name) + 1];
 const sessionFile = join(arg("--session-dir"), `2026_${arg("--session-id")}.jsonl`);
 if (!existsSync(sessionFile)) {
@@ -13,7 +13,6 @@ if (!existsSync(sessionFile)) {
 		`${JSON.stringify({ type: "session", version: 3, id: arg("--session-id"), timestamp: new Date().toISOString(), cwd: process.cwd() })}\n`,
 	);
 }
-let entryId = 0;
 if (env.FAKE_LOG) appendFileSync(env.FAKE_LOG, `${process.pid}\n`);
 if (env.FAKE_STUBBORN) {
 	process.on("SIGTERM", () => {});
@@ -33,12 +32,8 @@ function settle(aborted, beforeSettled = () => {}, settledDelay = 0) {
 		role: "assistant",
 		stopReason: aborted ? "aborted" : "stop",
 		content: [{ type: "text", text: messages.join("+") }],
+		...(env.FAKE_USAGE && { usage: JSON.parse(env.FAKE_USAGE) }),
 	};
-	const id = `${process.pid}-${++entryId}`;
-	appendFileSync(
-		sessionFile,
-		`${JSON.stringify({ type: "message", id, parentId: null, timestamp: new Date().toISOString(), message })}\n`,
-	);
 	out({ type: "message_end", message });
 	messages = [];
 	beforeSettled();
@@ -54,7 +49,9 @@ process.stdin.on("data", (chunk) => {
 		const cmd = JSON.parse(buffer.slice(0, nl));
 		buffer = buffer.slice(nl + 1);
 		const respond = (data) => out({ type: "response", id: cmd.id, command: cmd.type, success: true, data });
-		if (cmd.type === "get_state") respond({ sessionFile });
+		if (cmd.type === "get_state" && env.FAKE_STARTUP_ERROR)
+			out({ type: "response", id: cmd.id, command: cmd.type, success: false, error: env.FAKE_STARTUP_ERROR });
+		else if (cmd.type === "get_state") respond({ sessionFile });
 		else if (cmd.type === "prompt" && env.FAKE_PROMPT_HANGS) continue;
 		else if (cmd.type === "prompt") {
 			messages.push(cmd.message);
