@@ -112,7 +112,7 @@ Expand its report (Ctrl+O) for the transcript path. Each finished report is also
 
 **What happens to running subagents when I quit pi?**
 
-They're stopped. Their ids remain valid when you reopen the session, so your agent can resume them with a message.
+They're stopped (so are they on `/reload`, `/new`, and `/resume`). When you reopen the session, your agent hears which ones were cut short and where any missed reports are, and can resume them with a message.
 
 ## Learn more
 

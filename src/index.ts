@@ -59,7 +59,10 @@ function truncated(text: string, file: string | undefined): string {
 	return `${t.content}\n\n[Result truncated to ${t.outputLines} of ${t.totalLines} lines. The full text is ${rest}.]`;
 }
 
-/** Keep a finished launch's full report in a file next to its transcript, so the model can read it in parts. */
+/**
+ * Keep a finished launch's full report in a file next to its transcript, so the model can read it in
+ * parts, and a reopened session can deliver it, without either loading the JSONL transcript.
+ */
 function writeReport(run: Run, key: string): string | undefined {
 	const file = path.join(run.opts.sessionDir, `${run.id}-${key.slice(0, 8)}.md`);
 	try {
@@ -68,6 +71,11 @@ function writeReport(run: Run, key: string): string | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+/** A report reduced to where to read it, for the ones a reopened session missed, which could be many. */
+function briefLine(file: string, lines: number): string {
+	return `Report: ${file} (${lines} line${lines === 1 ? "" : "s"})`;
 }
 
 /** Where a session's subagents keep their sessions: in a directory named after its file, so /resume doesn't list them. */
@@ -100,8 +108,12 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	const runs = new Map<string, Run>();
 	/** Reports, snapshotted at settle, that haven't reached the parent yet via a wake or a script's call. */
 	const outbox: Report[] = [];
+	/** Each queued report's key in the session entries, which record its delivery for a reopened session. */
+	const keys = new WeakMap<Report, string>();
 	/** Each launch's report, by the promise it settles, so a script gets the report of the launch it awaited. */
 	const reportOf = new WeakMap<Promise<void>, Report>();
+	/** Reports a tool call took, recorded delivered once the turn ends, when its result is in the session. */
+	const taken: Report[] = [];
 	let session: ExtensionContext | undefined;
 	let config: Config;
 
@@ -114,9 +126,18 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	const widget = new Widget(() => [...runs.values()].filter((r) => r.status === "running" || lingering.has(r.id)));
 	pi.registerMessageRenderer("subagent-report", renderReportMessage);
 
+	/** Record that these reports reached the parent, so a reopened session doesn't send them again. */
+	function delivered(reports: Report[]) {
+		for (const r of reports) {
+			const key = keys.get(r);
+			if (key) pi.appendEntry(ENTRY, { id: r.id, delivered: key });
+		}
+	}
+
 	/** Empty the outbox into one custom message. */
 	function takeReports() {
 		const reports = outbox.splice(0);
+		delivered(reports);
 		const text = reports.map(formatReport).join("\n\n---\n\n");
 		const content = `<subagent_notification>\n${text}\n</subagent_notification>`;
 		return { customType: "subagent-report", content, display: true, details: { reports } };
@@ -147,10 +168,14 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			pi.appendEntry(ENTRY, { id: run.id, status: run.status, result: STOPPED });
 			lingering.delete(run.id);
 		} else {
+			const key = randomUUID();
+			const file = writeReport(run, key);
 			// Snapshot now: a resume would replace the result before delivery.
-			const r = report(run, writeReport(run, randomUUID()));
+			const r = report(run, file);
+			const lines = run.result.split("\n").length;
 			reportOf.set(run.done, r);
-			pi.appendEntry(ENTRY, { id: run.id, status: run.status });
+			keys.set(r, key);
+			pi.appendEntry(ENTRY, { id: run.id, status: run.status, settled: key, report: file, lines });
 			outbox.push(r);
 			lingering.add(run.id);
 		}
@@ -191,7 +216,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	/** Take back a failed launch's report: the tool's error delivers it instead. */
 	function retractFailure(run: Run) {
 		const i = outbox.findLastIndex((r) => r.id === run.id);
-		if (i !== -1) outbox.splice(i, 1);
+		if (i !== -1) taken.push(...outbox.splice(i, 1));
 	}
 
 	function checkCapacity() {
@@ -212,7 +237,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		}
 		const r = reportOf.get(done) ?? report(run);
 		const i = outbox.indexOf(r); // Not there if stopped, which queues no report.
-		if (i !== -1) outbox.splice(i, 1);
+		if (i !== -1) taken.push(...outbox.splice(i, 1));
 		return r;
 	}
 
@@ -223,6 +248,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	}
 
 	pi.on("agent_settled", () => {
+		delivered(taken.splice(0));
 		// Reports still in the outbox are delivered below; their rows stay through the turn that reads them.
 		for (const id of lingering) if (!outbox.some((r) => r.id === id)) lingering.delete(id);
 		widget.refresh();
@@ -260,16 +286,22 @@ export default function basicSubagents(pi: ExtensionAPI) {
 
 	/**
 	 * Runs started by earlier processes of this session, so their ids keep working. One last recorded
-	 * as running was stopped when its process exited.
+	 * as running was stopped when its process exited. The model is told about runs it never heard from,
+	 * without a wake, as Claude Code does on resume: it may have ended its turn expecting their reports.
 	 */
 	function restoreRuns(ctx: ExtensionContext) {
 		type Saved = RunRecord & { status?: Run["status"]; result?: string };
+		type Patch = Saved & { settled?: string; delivered?: string; report?: string; lines?: number };
 		const saved = new Map<string, Saved>();
+		/** Reports, by key, that were queued but never delivered. */
+		const missed = new Map<string, { id: string; status: Run["status"]; file?: string; lines?: number }>();
 		// All branches: runs are processes, not conversation state, so /tree doesn't change them.
 		for (const entry of ctx.sessionManager.getEntries()) {
 			if (entry.type !== "custom" || entry.customType !== ENTRY) continue;
-			const data = entry.data as Saved;
+			const { settled, delivered, report: file, lines, ...data } = entry.data as Patch;
 			saved.set(data.id, { ...saved.get(data.id), ...data });
+			if (settled) missed.set(settled, { id: data.id, status: data.status ?? "completed", file, lines });
+			if (delivered) missed.delete(delivered);
 		}
 		for (const { status = "running", result, ...record } of saved.values()) {
 			// Runs a fork copied from its original stay with the original, so the two never share a child session.
@@ -279,7 +311,19 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			run.sessionPath = SessionManager.findById(record.cwd, record.sessionId, record.sessionDir);
 			run.status = status === "running" ? "stopped" : status;
 			run.result = status === "running" ? INTERRUPTED : (result ?? "");
+			for (const [key, m] of missed) {
+				if (m.id !== run.id) continue;
+				const result = m.file && briefLine(m.file, m.lines ?? 0);
+				const r: Report = { ...run.view(), status: m.status, session_path: run.sessionPath, result };
+				keys.set(r, key);
+				outbox.push(r);
+			}
+			if (status !== "running") continue;
+			// Recorded as stopped, so the next reopen doesn't report the interruption again.
+			pi.appendEntry(ENTRY, { id: run.id, status: run.status, result: run.result });
+			outbox.push(report(run));
 		}
+		if (outbox.length > 0) pi.sendMessage(takeReports(), { triggerTurn: false });
 	}
 
 	pi.on("session_shutdown", async () => {
