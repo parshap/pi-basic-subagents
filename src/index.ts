@@ -151,11 +151,12 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	}
 
 	/** Hand every undelivered report to the idle parent and wake it; a busy parent gets them when it settles. */
-	function deliver() {
+	function deliver(wake = true) {
 		if (!session?.isIdle() || outbox.length === 0) return;
 		try {
 			// Append the reports before waking, so a wake pi rejects loses only the turn, not the reports.
 			pi.sendMessage(takeReports(), { triggerTurn: false });
+			if (!wake) return;
 			// A user prompt, not sendMessage's triggerTurn, which skips before_agent_start and with it other
 			// extensions' prompt sections. Steer queues it if another prompt starts the run first.
 			// Said outright: a wake with only some of a batch's reports is when a model reaches for a wait.
@@ -254,12 +255,12 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		return run;
 	}
 
-	pi.on("agent_settled", () => {
+	pi.on("agent_settled", (event) => {
 		delivered(taken.splice(0));
 		// Reports still in the outbox are delivered below; their rows stay through the turn that reads them.
 		for (const id of lingering) if (!outbox.some((r) => r.id === id)) lingering.delete(id);
 		widget.refresh();
-		deliver();
+		deliver(!event.aborted); // After Esc, the user has the floor: the reports wait in the conversation.
 	});
 	// Compaction and /tree summaries hold reports back; pi is idle again only after these events.
 	const deliverSoon = () => void setTimeout(deliver);
