@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { KeybindingsManager, setKeybindings, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	lines,
 	messageRenderers,
@@ -16,6 +16,7 @@ import {
 import type { RunView } from "../src/run.ts";
 
 initTheme();
+setKeybindings(new KeybindingsManager({ "app.tools.expand": { defaultKeys: "ctrl+o" } })); // As pi binds it.
 // Plain text, so assertions read the layout, not the colors.
 const theme = { fg: (_: string, t: string) => t, bg: (_: string, t: string) => t, bold: (t: string) => t } as any;
 const ctx = (over: object = {}) => ({ expanded: false, ...over }) as any;
@@ -54,20 +55,30 @@ test("a subagent_start block shows its arguments and a prompt preview, and the f
 		draw(startRenderers.renderCall(untyped, theme, ctx()))[0],
 		"subagent_start general-purpose · Audit auth · openai/gpt-6-luna:low",
 	);
-	assert.deepEqual(draw(startRenderers.renderResult({ content: [], details: { run } }, {}, theme)), [
-		"● sa-1a2b explore · Audit auth · running",
-	]);
+});
+
+test("start results only acknowledge the id", () => {
+	for (const expanded of [false, true]) {
+		assert.deepEqual(
+			draw(startRenderers.renderResult({ content: [], details: { id: run.id } }, {}, theme, ctx({ expanded }))),
+			["Started sa-1a2b.", ...(expanded ? [] : ["(ctrl+o to expand)"])],
+		);
+	}
 });
 
 test("a subagent_message block shows the message, and how it was delivered", () => {
-	const args = { id: "sa-1a2b", message: "Also check b.txt" };
+	const args = { id: "sa-1a2b", message: "Also check b.txt\nAnd c.txt" };
 	assert.deepEqual(draw(messageRenderers.renderCall(args, theme, ctx())), [
 		"subagent_message sa-1a2b",
 		"Also check b.txt",
 	]);
 	assert.deepEqual(draw(messageRenderers.renderResult({ content: [], details: { delivered: "resume" } }, {}, theme)), [
-		"delivered as resume",
+		"subagent resumed with message",
+		"(ctrl+o to expand)",
 	]);
+	assert.ok(
+		draw(messageRenderers.renderCall(args, theme, ctx({ expanded: true }))).some((l) => l.includes("And c.txt")),
+	);
 });
 
 test("a cut line ends in a muted ellipsis, not the default color", () => {
@@ -79,12 +90,14 @@ test("a cut line ends in a muted ellipsis, not the default color", () => {
 	);
 });
 
-test("a Report block is one Run line per report until expanded", () => {
-	const reports = [{ ...run, status: "completed" as const, result: "Done." }];
+test("a Report block previews each result until expanded", () => {
+	const reports = [{ ...run, status: "completed" as const, result: "Done.\nMore details." }];
 	const collapsed = draw(renderReportMessage({ details: { reports } }, { expanded: false, outputPad: 1 }, theme));
 	assert.ok(collapsed.some((l) => l.includes("✓ sa-1a2b explore · Audit auth · completed")));
 	assert.ok(collapsed.some((l) => l.includes("to expand)")));
-	assert.ok(!collapsed.some((l) => l.includes("Done.")));
+	assert.ok(collapsed.some((l) => l.includes("Done.")));
+	assert.equal(collapsed.filter((l) => l.includes("to expand)")).length, 1);
+	assert.ok(!collapsed.some((l) => l.includes("More details.")));
 	assert.ok(
 		draw(renderReportMessage({ details: { reports } }, { expanded: true, outputPad: 1 }, theme)).some((l) =>
 			l.includes("Done."),
@@ -165,11 +178,11 @@ test("the widget and finished summaries share session metrics", () => {
 		assert.ok(line.endsWith(expected));
 		const result = { content: [], details: { run: view } };
 		for (const renderer of [stopRenderers])
-			assert.deepEqual(draw(renderer.renderResult(result, {}, theme), 200), [line]);
+			assert.deepEqual(draw(renderer.renderResult(result, {}, theme), 200), [line, "(ctrl+o to expand)"]);
 		if (status !== "running") {
 			assert.deepEqual(
 				draw(renderReportMessage({ details: { reports: [view] } }, { expanded: false, outputPad: 0 }, theme), 200),
-				["", line, "(Ctrl+O to expand)", ""],
+				["", line, "(ctrl+o to expand)", ""],
 			);
 		}
 		const widget = { status, view: () => view, currentTool: { name: "bash", args: {} } } as any;
@@ -212,6 +225,7 @@ test("old snapshots omit unavailable metrics, and results without details keep t
 		assert.deepEqual(draw(renderer.renderResult(result, {}, theme, ctx({ expanded: true }))), expected);
 		assert.deepEqual(draw(renderer.renderResult({ content: [{ type: "text", text: "Old result." }] }, {}, theme)), [
 			"Old result.",
+			"(ctrl+o to expand)",
 		]);
 	}
 	assert.deepEqual(
@@ -219,6 +233,27 @@ test("old snapshots omit unavailable metrics, and results without details keep t
 		["", ...expected, ""],
 	);
 	assert.equal(widgetLine({ view: () => old } as any, 200, theme), "✓ sa-1a2b Audit auth · completed");
+});
+
+test("unstructured errors and legacy text expand in full with one collapsed hint", () => {
+	const text = `Failed: ${"long error ".repeat(30)}\x1b[2J\x07`;
+	const result = { content: [{ type: "text", text }] };
+	for (const renderer of [startRenderers, stopRenderers, messageRenderers]) {
+		const collapsed = draw(renderer.renderResult(result, {}, theme, ctx()), 60);
+		assert.ok(collapsed.every((l) => visibleWidth(l) <= 60));
+		assert.equal(collapsed.filter((l) => l.includes("to expand)")).length, 1);
+		const expanded = draw(renderer.renderResult(result, {}, theme, ctx({ expanded: true })), 60);
+		assert.ok(expanded.every((l) => visibleWidth(l) <= 60));
+		assert.ok(!expanded.some((l) => l.includes("to expand)")));
+		assert.equal(
+			expanded.join("").replace(/\s/g, ""),
+			text.replace("\x1b[2J", "").replace("\x07", "\\x07").replace(/\s/g, ""),
+		);
+		assert.deepEqual(
+			draw(renderer.renderResult({ content: [{ type: "text", text: "Short error." }] }, {}, theme, ctx())),
+			["Short error.", "(ctrl+o to expand)"],
+		);
+	}
 });
 
 test("narrow views fit the width while expanded metadata wraps without losing values", () => {
@@ -249,6 +284,48 @@ test("narrow views fit the width while expanded metadata wraps without losing va
 	assert.ok(text.includes(`model:${view.model}`));
 });
 
+test("collapsed reports preview the first nonempty result line, muted and cut to width", () => {
+	const reports = [
+		{ ...run, status: "completed" as const, result: "\n  \nFirst result line.\n\nSecond result line." },
+		{ ...run, id: "sa-other", status: "failed" as const, result: "\nOther result." },
+	];
+	const styled = { ...theme, fg: (c: string, t: string) => (c === "muted" ? `\x1b[2m${t}\x1b[22m` : t) };
+	const preview = draw(
+		renderReportMessage({ details: { reports: reports } }, { expanded: false, outputPad: 0 }, styled),
+		200,
+	);
+	assert.ok(preview.includes("\x1b[2mFirst result line.\x1b[22m"));
+	assert.ok(preview.includes("\x1b[2mOther result.\x1b[22m"));
+	assert.ok(!preview.some((l) => l.includes("Second result line.")));
+	assert.equal(preview.filter((l) => l.includes("to expand)")).length, 1);
+	const narrow = draw(
+		renderReportMessage({ details: { reports: reports } }, { expanded: false, outputPad: 0 }, theme),
+		10,
+	);
+	assert.equal(stripTerminalSequences(narrow[2]), "First res…");
+	assert.ok(narrow.every((l) => visibleWidth(l) <= 10));
+	const expanded = draw(
+		renderReportMessage({ details: { reports: reports } }, { expanded: true, outputPad: 0 }, theme),
+		200,
+	).join("\n");
+	assert.ok(expanded.includes("First result line.") && expanded.includes("Second result line."));
+});
+
+test("result previews sanitize controls before selecting the first nonempty line", () => {
+	const report = {
+		...run,
+		status: "completed" as const,
+		result: "\x1b[31m\x1b[0m\r\n\rPreview\x07\x08\x9b\x1b[2J\rSecond line.",
+	};
+	const text = draw(
+		renderReportMessage({ details: { reports: [report] } }, { expanded: false, outputPad: 0 }, theme),
+		200,
+	).join("\n");
+	assert.ok(text.includes("Preview\\x07\\x08\\x9b"));
+	assert.ok(!text.includes("Second line."));
+	assert.ok(!["\x1b", "\x07", "\x08", "\x9b", "\r"].some((control) => text.includes(control)));
+});
+
 test("failure summaries use the error, sanitize terminal controls, and keep the full error independently", () => {
 	const error =
 		"\r\n  \r\n\x1b[31mrate limited\x1b[0m\x1b[2J\r\nretry after 60s\x07\x1b]8;;https://evil.test\x07link\x1b]8;;\x07";
@@ -270,8 +347,9 @@ test("failure summaries use the error, sanitize terminal controls, and keep the 
 	const longError = "x".repeat(300);
 	const result = { content: [], details: { run: { ...view, error: longError } } };
 	const collapsed = draw(stopRenderers.renderResult(result, {}, theme), 60);
-	assert.equal(collapsed.length, 1);
+	assert.equal(collapsed.length, 2);
 	assert.ok(stripTerminalSequences(collapsed[0]).endsWith("…"));
+	assert.equal(collapsed[1], "(ctrl+o to expand)");
 	const expanded = draw(stopRenderers.renderResult(result, {}, theme, ctx({ expanded: true })), 60);
 	assert.ok(expanded.every((l) => visibleWidth(l) <= 60));
 	assert.ok(expanded.join("").includes(longError));
@@ -289,6 +367,28 @@ test("an error-only report doesn't repeat its failure as a result preview or bod
 		200,
 	).join("\n");
 	assert.equal(expanded.split("rate limited").length - 1, 2); // Summary and full error, not a third result copy.
+});
+
+test("collapsed blocks always show one expansion hint and expanded blocks show none", () => {
+	const bare = { ...run, status: "completed" as const };
+	const reports = [
+		{ ...bare, result: "All good." },
+		{ ...bare, id: "sa-other" },
+	];
+	for (const expanded of [false, true]) {
+		const surfaces = [
+			startRenderers.renderResult({ content: [], details: { id: run.id } }, {}, theme, ctx({ expanded })),
+			...(["steer", "resume"] as const).map((delivered) =>
+				messageRenderers.renderResult({ content: [], details: { delivered } }, {}, theme, ctx({ expanded })),
+			),
+			stopRenderers.renderResult({ content: [], details: { run: bare } }, {}, theme, ctx({ expanded })),
+			renderReportMessage({ details: { reports } }, { expanded, outputPad: 0 }, theme),
+		];
+		for (const surface of surfaces) {
+			assert.equal(draw(surface, 200).filter((l) => l.includes("to expand)")).length, expanded ? 0 : 1);
+			for (const width of [1, 10, 30]) assert.ok(draw(surface, width).every((l) => visibleWidth(l) <= width));
+		}
+	}
 });
 
 test("a model's short name drops what rarely tells models apart", () => {
