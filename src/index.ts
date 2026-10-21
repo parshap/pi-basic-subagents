@@ -441,7 +441,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 				const { run } = await startRun(params, signal, ctx);
 				// Right where the model decides what's next; a description alone doesn't stop the reflexive wait.
 				const text = `Started ${run.id}; its report will wake you. Do other work or end your turn.`;
-				return { content: [{ type: "text", text }], details: { run: run.view() } };
+				return { content: [{ type: "text", text }], details: { id: run.id } };
 			},
 			...startRenderers,
 		});

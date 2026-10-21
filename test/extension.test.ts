@@ -4,8 +4,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
+import { KeybindingsManager, setKeybindings } from "@earendil-works/pi-tui";
 import basicSubagents, { report } from "../src/index.ts";
 import { Run } from "../src/run.ts";
+
+setKeybindings(new KeybindingsManager({ "app.tools.expand": { defaultKeys: "ctrl+o" } })); // As pi binds it.
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "basic-subagents-test-"));
 process.argv[1] = path.join(import.meta.dirname, "fake-pi.mjs");
@@ -52,7 +55,18 @@ function load(
 	const script = async (name: string, params: unknown, signal?: AbortSignal) =>
 		(await execute(name, params, "codemode/1", signal)).structuredContent;
 	const setIdle = (value: boolean) => (idle = value);
-	return { tools: [...tools.keys()], execute, handlers, messages, call, callText, script, setIdle, drawWidget };
+	return {
+		tools: [...tools.keys()],
+		definitions: tools,
+		execute,
+		handlers,
+		messages,
+		call,
+		callText,
+		script,
+		setIdle,
+		drawWidget,
+	};
 }
 
 /** The file a brief report points to, from a notification. */
@@ -88,9 +102,8 @@ test("starting beyond maxConcurrent fails", async () => {
 
 test("a start without a type is general-purpose", async () => {
 	const { call } = load(0);
-	const run = await call("subagent_start", { prompt: "slow", description: "d" });
-	assert.equal(run.type, "general-purpose");
-	await call("subagent_stop", { id: run.id });
+	const { id } = await call("subagent_start", { prompt: "slow", description: "d" });
+	assert.equal((await call("subagent_stop", { id })).type, "general-purpose");
 });
 
 test("a direct start returns at once, telling the model not to wait", async () => {
@@ -385,6 +398,35 @@ function finished(result: string): Run {
 	run.result = result;
 	return run;
 }
+
+test("a start acknowledgment stays fixed while the widget follows the run", async () => {
+	const app = load(0);
+	process.env.FAKE_USAGE = JSON.stringify({ input: 100, output: 20, cacheRead: 30, cacheWrite: 10, totalTokens: 160 });
+	let start: any;
+	try {
+		start = await app.execute("subagent_start", {
+			subagent_type: "explore",
+			prompt: "hello",
+			description: "d",
+			model: "anthropic/claude-opus-5-5:high",
+		});
+	} finally {
+		delete process.env.FAKE_USAGE;
+	}
+	const id = start.details.id;
+	const theme = { fg: (_: string, t: string) => t, bold: (t: string) => t };
+	const renderer = app.definitions.get("subagent_start").renderResult;
+	const draw = (expanded = false) => renderer(start, {}, theme, { expanded }).render(300).join("\n");
+	assert.equal(draw(), `Started ${id}.\n(ctrl+o to expand)`);
+	assert.match(app.drawWidget()![0], /thinking · opus-5-5:high/);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	assert.match(app.drawWidget()![0], /completed · opus-5-5:high · 160 ctx/);
+	await app.call("subagent_message", { id, message: "slow again" });
+	assert.match(app.drawWidget()![0], /thinking · opus-5-5:high · 160 ctx/);
+	await app.call("subagent_stop", { id });
+	assert.equal(draw(true), `Started ${id}.`);
+	await app.handlers.session_shutdown();
+});
 
 test("context size survives reopening, and a resume replaces it", async () => {
 	const entries: any[] = [];

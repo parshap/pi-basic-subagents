@@ -6,7 +6,7 @@ What pi-basic-subagents draws, and the rules every surface follows: its design l
 
 - **Pi owns the frame.** We never choose a background. Tool blocks use pi's tool shell, and reports use pi's custom-message background, so each item looks like every other item of its kind.
 - **Color means status.** Only a subagent's status is colored. Everything else is plain text, muted, or dim.
-- **One line per subagent.** Wherever a subagent is listed (widget, tool blocks, reports), it's the same Run line; the widget leaves out the type and counts what doesn't fit.
+- **Shared Run line.** Live status and finished summaries use the same Run line; the widget leaves out the type and counts what doesn't fit.
 - **Collapsed is a summary, expanded is everything.** Collapsed views are single lines cut to the width; expanded views show the full input or output. Expansion follows pi's global toggle (Ctrl+O), plus a click where pi provides one.
 - **Content is for the model, details are for rendering.** Renderers draw from structured `details` and tool arguments, never by parsing the text the model reads. That text must stand on its own in print, JSON, and RPC modes, where nothing is rendered.
 - **Theme tokens only.** No literal colors, and no text left in the terminal's default color, so light and dark themes work.
@@ -50,12 +50,12 @@ Live Run lines for running and recently finished subagents, above the editor, in
 One per tool call the parent model makes, drawn inside pi's tool shell.
 
 - **Header** (`renderCall`): the tool name in pi's `toolTitle` bold, then its subject. Collapsed it fits on one line; expanded it wraps and shows every argument in full.
-- **Body** (`renderResult`): the outcome. Collapsed is a line or a few Run lines; expanded is the full result.
+- **Body** (`renderResult`): the outcome. Collapsed is a summary with one dim expansion hint; expanded is the full result without a hint.
 
 | Tool | Header, collapsed | Header, expanded | Body, collapsed | Body, expanded |
 |---|---|---|---|---|
-| `subagent_start` | type · description · model, then the first 2 lines of the prompt (muted) | all arguments, the prompt as Markdown | the new Run line | same |
-| `subagent_message` | id, then the first line of the message (muted) | the full message | `delivered as steer` or `delivered as resume` | same |
+| `subagent_start` | type · description · model, then the first 2 lines of the prompt (muted) | all arguments, the prompt as Markdown | `Started <id>.` | same acknowledgment |
+| `subagent_message` | id, then the first line of the message (muted) | the full message | `message sent to running subagent` or `subagent resumed with message` | same |
 | `subagent_stop` | id | same | the Run line with its status | Run line, model, transcript link, any failure reason |
 
 The widget shows current state; tool results and reports show what they returned and never change.
@@ -64,7 +64,7 @@ The widget shows current state; tool results and reports show what they returned
 
 A finished subagent's report, delivered as a custom message. It's the subagent speaking into the conversation, not a tool call, so it uses pi's custom-message frame.
 
-- **Collapsed**: a Run line per report, then a dim `(Ctrl+O to expand)`.
+- **Collapsed**: per report, a Run line and one muted preview line from the result, followed by one dim expansion hint for the block.
 - **Expanded**: per report, the Run line, full model, the transcript path as a link, any failure reason, then the result as Markdown. Reports are separated by a blank line.
 
 ### Toast
@@ -108,7 +108,7 @@ The glyph, status word, and short failure reason take the color; metadata stays 
 | Primary text (ids, descriptions) | `text` |
 | Markdown bodies (prompts, messages, results) | `toolOutput` in tool blocks, `customMessageText` in report blocks, as in pi's own |
 | Secondary metadata (type, model, context size, elapsed, separators) | `muted` |
-| Hints (`Ctrl+O to expand`) | `dim` |
+| Hints (`(ctrl+o to expand)`, from pi's keybinding) | key `dim`, the rest `muted` |
 
 ## Copy
 

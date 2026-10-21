@@ -10,6 +10,7 @@ import {
 	stripTerminalSequences,
 	type TUI,
 	truncateToWidth,
+	VStack,
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
@@ -65,15 +66,6 @@ function wrapped(text: string): Component {
 /** A tool block's header: one cut line collapsed, wrapped in full expanded. */
 const header = (text: string, theme: Theme, ctx: Ctx) => (ctx.expanded ? wrapped(text) : lines([text], theme));
 
-function stack(children: Component[]): Component {
-	return {
-		render: (width) => children.flatMap((c) => c.render(width)),
-		invalidate: () => {
-			for (const c of children) c.invalidate();
-		},
-	};
-}
-
 /** Body text: `toolOutput` in tool blocks and `customMessageText` in report blocks, like pi's own. */
 type BodyColor = "toolOutput" | "customMessageText";
 
@@ -87,19 +79,17 @@ const firstLines = (text: string, n: number) =>
 		.filter((l) => l.trim())
 		.slice(0, n);
 
-function expandHint(theme: Theme): string {
-	let key = "Ctrl+O";
-	try {
-		key = keyText("app.tools.expand") || key;
-	} catch {}
-	return theme.fg("dim", `(${key} to expand)`);
-}
+// keyHint()'s styling, but with the theme renderers are given, not pi's global one.
+const expandHint = (theme: Theme) =>
+	theme.fg("muted", "(") + theme.fg("dim", keyText("app.tools.expand")) + theme.fg("muted", " to expand)");
 
 /** Untrusted plain text must not drive the terminal or override the theme. */
 const safeText = (text: string) =>
 	stripTerminalSequences(text)
 		.replace(/\r\n?/g, "\n")
 		.replace(/\p{Cc}/gu, (c) => (c === "\n" ? c : `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`));
+
+const collapsed = (texts: string[], theme: Theme) => lines([...texts, expandHint(theme)], theme);
 
 /** A report's full view: its summary, model, transcript link, error, and result. */
 function reportSection(r: Report, theme: Theme, color: BodyColor = "toolOutput"): Component {
@@ -109,43 +99,47 @@ function reportSection(r: Report, theme: Theme, color: BodyColor = "toolOutput")
 		parts.push(wrapped(theme.fg("muted", hyperlink(r.session_path, pathToFileURL(r.session_path).href))));
 	if (r.error) parts.push(new Spacer(1), wrapped(theme.fg(color, safeText(r.error))));
 	if (r.result && r.result !== r.error) parts.push(new Spacer(1), markdown(r.result, theme, color));
-	return stack(parts);
+	return new VStack(parts);
 }
 
-function reportList(reports: Report[], expanded: boolean, theme: Theme, color: BodyColor): Component {
-	if (!expanded)
-		return lines(
-			reports.map((r) => runLine(r, theme)),
-			theme,
-		);
-	const sections = reports.map((r) => reportSection(r, theme, color));
-	return stack(sections.flatMap((section, i) => (i > 0 ? [new Spacer(1), section] : [section])));
+function reportList(reports: Report[], expanded: boolean, theme: Theme): Component {
+	if (!expanded) {
+		const texts = reports.flatMap((r) => [
+			runLine(r, theme),
+			...firstLines(safeText(r.result !== r.error ? (r.result ?? "") : ""), 1).map((text) => theme.fg("muted", text)),
+		]);
+		return collapsed(texts, theme);
+	}
+	const sections = reports.map((r) => reportSection(r, theme, "customMessageText"));
+	return new VStack(sections.flatMap((section, i) => (i > 0 ? [new Spacer(1), section] : [section])));
 }
 
-/** A tool result without our details (an error, or a session from before them): its text as is. */
-function textResult(result: { content: { type: string; text?: string }[] }, theme: Theme): Component {
-	const text = result.content.map((c) => c.text ?? "").join("\n");
-	return lines(
-		text.split("\n").map((l) => theme.fg("toolOutput", l)),
-		theme,
-	);
+/** Errors, which have no structured details. */
+function textResult(result: { content: { type: string; text?: string }[] }, theme: Theme, ctx: Ctx): Component {
+	const text = safeText(result.content.map((c) => c.text ?? "").join("\n"));
+	return ctx.expanded
+		? wrapped(theme.fg("toolOutput", text))
+		: collapsed(
+				text.split("\n").map((l) => theme.fg("toolOutput", l)),
+				theme,
+			);
 }
 
 type Result<D> = { content: { type: string; text?: string }[]; details?: D };
+type StartArgs = { subagent_type?: string; description?: string; model?: string; prompt?: string };
 type Ctx = { expanded: boolean };
 
+function startHeading(args: StartArgs, theme: Theme): string {
+	const head = [
+		`${title("subagent_start", theme)} ${theme.fg("muted", args.subagent_type ?? "general-purpose")}`,
+		theme.fg("text", args.description ?? ""),
+	];
+	if (args.model) head.push(theme.fg("muted", args.model));
+	return head.join(theme.fg("muted", " · "));
+}
+
 export const startRenderers = {
-	renderCall(
-		args: { subagent_type?: string; description?: string; model?: string; prompt?: string },
-		theme: Theme,
-		ctx: Ctx,
-	) {
-		const sep = theme.fg("muted", " · ");
-		const head = [
-			`${title("subagent_start", theme)} ${theme.fg("muted", args.subagent_type ?? "general-purpose")}`,
-			theme.fg("text", args.description ?? ""),
-		];
-		if (args.model) head.push(theme.fg("muted", args.model));
+	renderCall(args: StartArgs, theme: Theme, ctx: Ctx = { expanded: false }) {
 		const prompt = args.prompt ?? "";
 		const body = ctx.expanded
 			? [new Spacer(1), markdown(prompt, theme, "toolOutput")]
@@ -155,11 +149,13 @@ export const startRenderers = {
 						theme,
 					),
 				];
-		return stack([header(head.join(sep), theme, ctx), ...body]);
+		return new VStack([header(startHeading(args, theme), theme, ctx), ...body]);
 	},
-	renderResult(result: Result<{ run: RunView }>, _opts: unknown, theme: Theme) {
-		if (!result.details?.run) return textResult(result, theme);
-		return lines([runLine(result.details.run, theme)], theme);
+	renderResult(result: Result<{ id?: string }>, _opts: unknown, theme: Theme, ctx: Ctx = { expanded: false }) {
+		const id = result.details?.id;
+		if (!id) return textResult(result, theme, ctx);
+		const acknowledgment = theme.fg("toolOutput", `Started ${id}.`);
+		return ctx.expanded ? wrapped(acknowledgment) : collapsed([acknowledgment], theme);
 	},
 };
 
@@ -168,13 +164,22 @@ export const messageRenderers = {
 		const message = args.message ?? "";
 		const head = `${title("subagent_message", theme)} ${theme.fg("text", args.id ?? "")}`;
 		return ctx.expanded
-			? stack([lines([head], theme), new Spacer(1), markdown(message, theme, "toolOutput")])
+			? new VStack([lines([head], theme), new Spacer(1), markdown(message, theme, "toolOutput")])
 			: lines([head, ...firstLines(message, 1).map((l) => theme.fg("muted", l))], theme);
 	},
-	renderResult(result: Result<{ delivered: "steer" | "resume" }>, _opts: unknown, theme: Theme) {
+	renderResult(
+		result: Result<{ delivered: "steer" | "resume" }>,
+		_opts: unknown,
+		theme: Theme,
+		ctx: Ctx = { expanded: false },
+	) {
 		const delivered = result.details?.delivered;
-		if (!delivered) return textResult(result, theme);
-		return lines([theme.fg("muted", `delivered as ${delivered}`)], theme);
+		if (!delivered) return textResult(result, theme, ctx);
+		const text = theme.fg(
+			"muted",
+			delivered === "steer" ? "message sent to running subagent" : "subagent resumed with message",
+		);
+		return ctx.expanded ? wrapped(text) : collapsed([text], theme);
 	},
 };
 
@@ -183,9 +188,9 @@ export const stopRenderers = {
 		return lines([`${title("subagent_stop", theme)} ${theme.fg("text", args.id ?? "")}`], theme);
 	},
 	renderResult(result: Result<{ run: Report }>, _opts: unknown, theme: Theme, ctx: Ctx = { expanded: false }) {
-		if (!result.details?.run) return textResult(result, theme);
+		if (!result.details?.run) return textResult(result, theme, ctx);
 		const r = result.details.run;
-		return ctx.expanded ? reportSection(r, theme) : lines([runLine(r, theme)], theme);
+		return ctx.expanded ? reportSection(r, theme) : collapsed([runLine(r, theme)], theme);
 	},
 };
 
@@ -198,8 +203,7 @@ export function renderReportMessage(
 	const reports = message.details?.reports;
 	if (!reports?.length) return undefined; // pi's default rendering of the text.
 	const box = new Box(options.outputPad, 1, (t) => theme.bg("customMessageBg", t));
-	box.addChild(reportList(reports, options.expanded, theme, "customMessageText"));
-	if (!options.expanded) box.addChild(lines([expandHint(theme)], theme));
+	box.addChild(reportList(reports, options.expanded, theme));
 	return box;
 }
 
