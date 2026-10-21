@@ -210,10 +210,8 @@ export class Run {
 			for (const resolve of pending.values()) resolve({ success: false, error: "pi exited" });
 			pending.clear();
 			if (!current()) return;
-			this.finish(
-				this.stopping ? "stopped" : "failed",
-				`pi exited before finishing (code ${code}, signal ${signal}).\n${this.stderr.trim()}`,
-			);
+			const reason = `pi exited before finishing (code ${code}, signal ${signal}).\n${this.stderr.trim()}`;
+			this.finish(this.stopping ? "stopped" : "failed", reason);
 		});
 
 		// pi answers once it has started; a child stuck in startup fails here. Prompts aren't
@@ -318,11 +316,11 @@ export class Run {
 	}
 
 	private async settled(aborted: boolean) {
+		const generation = this.generation;
 		// pi marks the run idle before it reports it settled, and a steer it accepts in between is
 		// queued with no run to read it. Run what's queued instead of finishing.
 		if (this.steered && !aborted && !this.stopping) {
 			this.steered = false;
-			const generation = this.generation;
 			const cleared = await this.request({ type: "clear_queue" }, 2000);
 			if (generation !== this.generation || this.status !== "running") return;
 			const queued = [...(cleared.data?.steering ?? []), ...(cleared.data?.followUp ?? [])];
@@ -335,7 +333,7 @@ export class Run {
 		if (!this.stopping && (this.lastAssistant?.stopReason === "error" || aborted)) {
 			const reason =
 				this.lastAssistant?.errorMessage || (aborted ? "pi aborted before finishing" : "Model response failed");
-			return this.finish("failed", this.text() || reason, reason);
+			return this.finish("failed", reason);
 		}
 		this.finish(this.stopping ? "stopped" : "completed", this.text() || "(no output)");
 	}
@@ -350,13 +348,13 @@ export class Run {
 			.trim();
 	}
 
-	/** A failed run's `error` is its reason, which `result` holds too unless the child wrote text first. */
-	private finish(status: Status, result: string, error = status === "failed" ? result : undefined) {
+	/** A failed run's result is its reason: partial output would read as an answer. */
+	private finish(status: Status, result: string) {
 		if (this.status !== "running") return;
 		this.status = status;
 		if (this.startedAt !== undefined) this.elapsedMs = Math.max(0, Date.now() - this.startedAt);
 		this.result = result;
-		this.error = error;
+		this.error = status === "failed" ? result : undefined;
 		this.tools.clear();
 		// The process lives only while a run is active; closing stdin lets it exit cleanly.
 		this.proc?.stdin?.end();

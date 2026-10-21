@@ -138,12 +138,47 @@ test("a startup failure settles the run as failed with its explicit reason", asy
 	await run.done;
 });
 
+test("a failed run's result is its reason, not its partial output, and resuming clears it", async () => {
+	const { run } = fakeRun({ FAKE_ERROR: "provider rate limit" });
+	let snapshot: ReturnType<Run["view"]> | undefined;
+	run.opts.onSettle = (settled) => {
+		snapshot = settled.view();
+	};
+	await run.prompt("partial answer");
+	await run.done;
+	assert.equal(run.status, "failed");
+	assert.equal(run.result, "provider rate limit");
+	assert.equal(run.error, "provider rate limit");
+	assert.equal(snapshot?.error, "provider rate limit");
+	const failed = snapshot;
+	delete run.opts.env.FAKE_ERROR;
+	const resumed = run.send("recovered", () => {});
+	assert.equal(run.error, undefined);
+	assert.equal(run.view().error, undefined);
+	await resumed;
+	await run.done;
+	assert.equal(run.status, "completed");
+	assert.equal(run.error, undefined);
+	assert.equal(failed?.error, "provider rate limit");
+});
+
 test("RPC startup rejection preserves its error reason", async () => {
 	const { run } = fakeRun({ FAKE_STARTUP_ERROR: "extension initialization failed" });
 	await run.prompt("hello");
 	await run.done;
 	assert.equal(run.status, "failed");
 	assert.match(run.error ?? "", /pi didn't start: extension initialization failed/);
+});
+
+test("an unexpected exit fails with the exit reason and stderr, not the partial output", async () => {
+	const { run } = fakeRun({ FAKE_EXIT_BEFORE_SETTLED: "1" });
+	await run.prompt("partial answer");
+	await run.done;
+	assert.equal(run.status, "failed");
+	assert.match(run.error ?? "", /pi exited before finishing \(code 2,/);
+	assert.match(run.error ?? "", /unexpected child failure/);
+	assert.equal(run.view().error, run.error);
+	assert.equal(run.result, run.error);
 });
 
 test("stop kills a child that ignores stdin EOF and SIGTERM", async () => {
