@@ -10,10 +10,8 @@ Minimal subagents for [pi](https://pi.dev), where each subagent is a regular pi 
 ## Design
 
 - **Just a pi session.** Each subagent runs in your project with your settings, extensions, MCP servers, skills, and `AGENTS.md`, and its transcript is a normal pi session you can open.
-- **Nothing to configure.** There are no agent definitions, prompts, or tool lists to write. Install it and ask your agent to delegate to subagents.
-- **Familiar to models.** Tools modeled on Claude Code's subagent tools, which many models know from training.
-- **One-way communication.** Your agent (the parent) sends a prompt and can steer or stop the subagent while it works. The subagent reports back only when it finishes.
-- **Never blocks your agent.** Subagents report back when they're done, so your agent stays free to talk to you. For workflows that wait on subagents, it writes [codemode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/codemode.md) scripts.
+- **Minimal.** No agent definitions, prompts, or tool lists to write: install it and ask your agent to delegate. It exposes three tools for your agent, modeled on Claude and Codex so models already know them. No commands, skills, or system-prompt text. No workflow engine: your agent scripts subagents with [codemode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/codemode.md).
+- **Never blocking.** Your agent starts a subagent and can steer or stop it while it works; the subagent reports back when it finishes. Your agent stays free to talk to you.
 
 ## Install
 
@@ -29,7 +27,7 @@ Ask for it in plain words; your agent calls the tools:
 
 > Have two subagents review this work, one using Opus and one using GPT, and compare what they find.
 
-Starting a subagent returns right away, so you can keep talking to your agent. Running subagents show live above the editor with their model, token use, and time. When one finishes, its report lands in your conversation and wakes your agent. Your agent can steer running subagents, or resume finished ones, by sending them messages. With codemode, it can also script many subagents and pass on only what matters.
+Starting a subagent returns right away, so you can keep talking to your agent. Running subagents show live above the editor with their model, context size, and time. When one finishes, its report lands in your conversation and wakes your agent. Your agent can steer running subagents, or resume finished ones, by sending them messages. With codemode, it can also script many subagents and pass on only what matters.
 
 There are two subagent types: `explore` for research, review, and verification, told not to change the project or publish anything (an instruction, not a security sandbox), and `general-purpose`, the default, for work that changes things. A subagent uses the same model as your agent unless your agent picks another.
 
@@ -82,25 +80,17 @@ The most used pi subagent packages, and the example that ships with pi, as of Oc
 
 ## FAQ
 
-**Why model the tools on Claude Code's subagent tools?**
-
-Many models have seen Claude Code's subagent tools in training, so they already know the pattern: a self-contained brief, a type, a short description, results that arrive later, and a message to follow up. Using the same shape and parameter names (`subagent_type`, `prompt`, `description`) means your agent delegates well without long instructions.
-
 **Why is there no tool for my agent to wait for subagents?**
 
-So you can keep talking to your agent. Given a wait tool, models tend to call it right after starting subagents, and you're shut out until they finish; Claude Code removed its wait tool for the same reason. Instead, each report wakes your agent when it arrives, and waiting happens only in codemode scripts. The [research memo](docs/research/2026-10-20-subagent-waiting.md) compares how Claude Code, Codex, and other pi packages handle this.
-
-**How do subagents work in codemode?**
-
-Scripts get two tools of their own that wait, like `await agent()` in Claude Code's workflows: `subagent_run` starts a subagent and returns its report, and `subagent_continue` resumes one with a message and returns its next report. A script can fan out with `Promise.all` and return only what your agent needs. While it runs, your agent is busy, as with any long tool call, and stopping it (Esc) stops its subagents. Past `maxConcurrent`, calls fail, so batch big fan-outs.
+So you can keep talking to your agent. Given a wait tool, models tend to call it right after starting subagents, shutting you out until they finish; Claude Code removed its wait tool for the same reason ([research memo](docs/research/2026-10-20-subagent-waiting.md)). Waiting happens only in codemode scripts, which get `subagent_run` and `subagent_continue`: like `await agent()` in Claude Code's workflows, they return the subagent's report, so a script can fan out with `Promise.all` and return only what your agent needs. Stopping a script (Esc) stops its subagents, and calls past `maxConcurrent` fail, so batch big fan-outs.
 
 **Why one-way communication? What if a subagent gets stuck?**
 
-A subagent works in the background, where nobody is watching to answer questions, and your agent, busy with its own work, is a poor stand-in. So a subagent makes routine judgment calls itself and states its assumptions in its report. At a decision that would change the outcome, it stops and reports what needs deciding. Your agent, or you through it, answers with a message, which resumes the subagent with its full history. Extension dialogs in a subagent are cancelled for the same reason.
+A subagent works in the background, where nobody is watching to answer questions, and your agent, busy with its own work, is a poor stand-in. So a subagent makes routine judgment calls itself and states its assumptions in its report. At a decision that would change the outcome, it stops and reports what needs deciding. Your agent, or you through it, answers with a message, which resumes the subagent with its full history.
 
 **Is `explore` read-only?**
 
-No. It's told not to change the project or publish anything, but it has the same tools as any pi session. Read-only work often needs to run code and write temporary files: even scripting a few commands together takes `bash`, and `bash` can edit any file. For enforced limits, use a sandbox or a permission system.
+No. It's told not to change the project or publish anything, but it has the same tools as any pi session, and read-only work often needs `bash`, which can edit any file. For enforced limits, use a sandbox or a permission system.
 
 **Can two subagents work on the same files?**
 
@@ -108,7 +98,7 @@ They can, and they can collide: subagents work in your project directory, not a 
 
 **Can I see what a subagent did?**
 
-Expand its report (Ctrl+O) for the transcript path. Each finished report is also saved as a Markdown file next to the transcript. `pi --session <path>` opens it; to continue the work yourself, use `pi --fork <path>`, which leaves the original for your agent to resume.
+Expand its report for the transcript path. Each finished report is also saved as a Markdown file next to the transcript. `pi --session <path>` opens it; to continue the work yourself, use `pi --fork <path>`, which leaves the original for your agent to resume.
 
 **What happens to running subagents when I quit pi?**
 
