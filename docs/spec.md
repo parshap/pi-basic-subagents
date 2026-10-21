@@ -16,8 +16,8 @@ The design principles are in the [README](../README.md#design). Beyond those:
 |---|---|---|---|
 | `subagent_start` | the model | `subagent_type?` (`explore` \| `general-purpose`, the default), `prompt`, `description`, `model?` | as soon as the child is running |
 | `subagent_message` | the model | `id`, `message` | once the child accepts it, saying whether it steered or resumed |
-| `subagent_stop` | the model | `id` | its status: stopped, or how it had already finished |
-| `subagent_run` | scripts | as `subagent_start` | once it finishes: the report, `{ id, type, description, status, result?, session_path? }` |
+| `subagent_stop` | the model | `id` | its status: stopped (adding that `subagent_message` resumes it), or how it had already finished |
+| `subagent_run` | scripts | as `subagent_start` | once it finishes: the report, `{ id, type, description, status, result?, session_path? }`; a failed run's `result` is its error |
 | `subagent_continue` | scripts | as `subagent_message` | the run's next report. It only resumes, so a running id fails. |
 
 In pi's terms, the model's tools are `model-only` and the scripts' are `codemode`: scripts can't call the model's tools, and the model sees the scripts' tools only in codemode's description. With codemode's `only` mode, the model's tools stay declared, since pi hides only tools scripts can call; that keeps a way to delegate without blocking.
@@ -34,8 +34,8 @@ In pi's terms, the model's tools are `model-only` and the scripts' are `codemode
 
 When a run finishes, its full report is saved to a file next to its transcript (`<id>-<key>.md`) and waits until the parent is idle. Then pending reports are appended as one `<subagent_notification>` custom message, and a short user prompt wakes the parent, naming any subagents still running: a partial batch is when models tend to wait for the rest. The wake is a prompt rather than `triggerTurn` so it goes through pi's normal prompt path (`before_agent_start`); if pi rejects it, the reports are already in the session. Open problem: [the wake shows up as something the user typed](issues/wake-prompt-is-a-user-message.md).
 
-- **What the model reads.** A report is its status line, then its result. A report leaves out the UI's metrics and the transcript path: the JSONL would flood the parent's context, and the report's file covers reading more. The UI still links the transcript.
-- **Missed reports.** On reopen there may be many, so each is just its status line and `Report: <file> (N lines)`, in the UI too.
+- **What the model reads.** A report is its status line, then its result. A failed run's result is only its error, never partial output, followed by `subagent_message resumes it.`: the subagent keeps its context, so the model can ask it for what it has. A report leaves out the UI's metrics and the transcript path: the JSONL would flood the parent's context, and the report's file covers reading more. The UI still links the transcript.
+- **Missed reports.** On reopen there may be many, so each is just its status line and `Report: <file> (N lines)`, in the UI too. It has no failure reason: the file has it.
 
 ## 4. Runs
 

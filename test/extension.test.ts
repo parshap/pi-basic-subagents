@@ -52,7 +52,7 @@ function load(
 	const script = async (name: string, params: unknown, signal?: AbortSignal) =>
 		(await execute(name, params, "codemode/1", signal)).structuredContent;
 	const setIdle = (value: boolean) => (idle = value);
-	return { tools: [...tools.keys()], handlers, messages, call, callText, script, setIdle, drawWidget };
+	return { tools: [...tools.keys()], execute, handlers, messages, call, callText, script, setIdle, drawWidget };
 }
 
 /** The file a brief report points to, from a notification. */
@@ -94,14 +94,12 @@ test("a start without a type is general-purpose", async () => {
 });
 
 test("a direct start returns at once, telling the model not to wait", async () => {
-	const { call, callText } = load(0);
+	const { callText } = load(0);
 	const start = { subagent_type: "explore", prompt: "slow", description: "d" };
-	const r = await call("subagent_start", start);
-	assert.equal(r.status, "running");
 	const text = await callText("subagent_start", start);
 	assert.match(text, /^Started sa-\w+; its report will wake you\. Do other work or end your turn\.$/);
-	await call("subagent_stop", { id: r.id });
-	await call("subagent_stop", { id: text.split(" ")[1].slice(0, -1) });
+	const id = text.split(" ")[1].slice(0, -1);
+	assert.equal(await callText("subagent_stop", { id }), `${id}: stopped. subagent_message resumes it.`);
 });
 
 test("a script's start resolves with the report, which isn't also sent as a message", async () => {
@@ -434,6 +432,44 @@ test("a run cut short by shutdown keeps its last saved context size", async () =
 	const reopened = load(0, {}, JSON.parse(JSON.stringify(entries)));
 	assert.equal((await reopened.call("subagent_stop", { id })).contextTokens, 50);
 	await reopened.handlers.session_shutdown();
+});
+
+test("a failed run reports only its reason, and that it can be resumed", async () => {
+	const app = load(0);
+	process.env.FAKE_ERROR = "rate limit exceeded\nRetry after 30 seconds";
+	let failed: any;
+	try {
+		failed = await app.execute(
+			"subagent_run",
+			{ subagent_type: "explore", prompt: "Partial answer", description: "d" },
+			"codemode/1",
+		);
+	} finally {
+		delete process.env.FAKE_ERROR;
+	}
+	assert.equal(failed.structuredContent.status, "failed");
+	assert.equal(failed.structuredContent.result, "rate limit exceeded\nRetry after 30 seconds");
+	assert.match(
+		failed.content[0].text,
+		/failed\n\nrate limit exceeded\nRetry after 30 seconds\n\nsubagent_message resumes it\.$/,
+	);
+	await app.handlers.session_shutdown();
+});
+
+test("a failed report a reopened session missed keeps its failure reason in its file", async () => {
+	const entries: any[] = [];
+	const first = load(0, {}, entries);
+	process.env.FAKE_ERROR = "rate limit exceeded";
+	try {
+		await first.call("subagent_start", { subagent_type: "explore", prompt: "Partial answer", description: "d" });
+	} finally {
+		delete process.env.FAKE_ERROR;
+	}
+	await new Promise((resolve) => setTimeout(resolve, 300)); // Settles while the parent is busy.
+	await first.handlers.session_shutdown();
+	const [notification] = load(0, {}, entries).messages;
+	const file = notification.match(/Report: (\S+\.md) \(1 line\)/)![1];
+	assert.equal(fs.readFileSync(file, "utf8"), "rate limit exceeded");
 });
 
 test("long results are truncated, pointing to the report file", () => {

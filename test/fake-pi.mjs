@@ -30,11 +30,16 @@ function settle(aborted, beforeSettled = () => {}, settledDelay = 0) {
 	timer = undefined;
 	const message = {
 		role: "assistant",
-		stopReason: aborted ? "aborted" : "stop",
+		stopReason: aborted ? "aborted" : env.FAKE_ERROR ? "error" : "stop",
+		...(env.FAKE_ERROR && { errorMessage: env.FAKE_ERROR }),
 		content: [{ type: "text", text: messages.join("+") }],
 		...(env.FAKE_USAGE && { usage: JSON.parse(env.FAKE_USAGE) }),
 	};
 	out({ type: "message_end", message });
+	if (env.FAKE_EXIT_BEFORE_SETTLED) {
+		process.stderr.write("unexpected child failure\n");
+		process.exit(2);
+	}
 	messages = [];
 	beforeSettled();
 	if (settledDelay) setTimeout(() => out({ type: "agent_settled", aborted }), settledDelay);

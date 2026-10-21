@@ -91,11 +91,12 @@ function childSessionDir(sm: ExtensionContext["sessionManager"]): string {
 
 /**
  * A report as the model reads it, without the metrics the UI shows. The transcript path is left out too:
- * the JSONL would flood its context.
+ * the JSONL would flood its context. A failed run keeps its context, so the model can ask it what it has.
  */
 function formatReport(r: Report): string {
 	const head = `${r.id} (${r.type}: ${r.description}) ${r.status}`;
-	return r.result !== undefined ? `${head}\n\n${r.result}` : head;
+	const text = r.result !== undefined ? `${head}\n\n${r.result}` : head;
+	return r.status === "failed" ? `${text}\n\nsubagent_message resumes it.` : text;
 }
 
 /** `promise`, or a rejection once `signal` aborts (pi waits for a tool's execute() even after Esc). */
@@ -514,8 +515,9 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const run = getRun(params.id);
 				await run.stop();
+				const resumes = run.status === "stopped" ? " subagent_message resumes it." : "";
 				return {
-					content: [{ type: "text", text: `${run.id}: ${run.status}.` }],
+					content: [{ type: "text", text: `${run.id}: ${run.status}.${resumes}` }],
 					details: { run: { ...run.view(), session_path: run.sessionPath } },
 				};
 			},
