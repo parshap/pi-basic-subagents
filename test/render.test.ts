@@ -24,6 +24,23 @@ const draw = (c: { render(w: number): string[] } | undefined, width = 80) => c!.
 
 const run = { id: "sa-1a2b", type: "explore", description: "Audit auth", status: "running" as const };
 
+test("tool headers and previews keep model text on one line, without terminal controls", () => {
+	const args = { description: "Audit\nforged row\x1b[2J", model: "m\x07", prompt: "\x1b[2Jfirst\nsecond" };
+	assert.deepEqual(draw(startRenderers.renderCall(args, theme, ctx())), [
+		"subagent_start general-purpose · Audit forged row · m\\x07",
+		"first",
+		"second",
+	]);
+});
+
+test("a Run line keeps text from the model or child on one line, without terminal controls", () => {
+	const line = runLine(
+		{ ...run, description: "Two\nlines \x1b[31mred", model: "x/m\x07", contextTokens: 3_456_789 },
+		theme,
+	);
+	assert.equal(line, "● sa-1a2b explore · Two lines red · running · m\\x07 · 3.5M ctx");
+});
+
 test("a Run line shows a running subagent's activity, and a finished one's status", () => {
 	assert.equal(runLine({ ...run, state: "bash · 12s" }, theme), "● sa-1a2b explore · Audit auth · bash · 12s");
 	assert.equal(runLine({ ...run, status: "failed" }, theme), "✗ sa-1a2b explore · Audit auth · failed");
