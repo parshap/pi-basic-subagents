@@ -121,7 +121,7 @@ test("a script's start resolves with the report, which isn't also sent as a mess
 	assert.equal(r.status, "completed");
 	assert.equal(r.result, "hello");
 	setIdle(true);
-	handlers.agent_settled();
+	handlers.agent_settled({ aborted: false });
 	await new Promise((resolve) => setTimeout(resolve, 50));
 	assert.deepEqual(messages, []);
 });
@@ -144,7 +144,7 @@ test("cancelling a script's continue stops the subagent, even while it starts up
 	await assert.rejects(waiting, new RegExp(`^Error: Cancelled; ${id} stopped`));
 	assert.equal((await call("subagent_stop", { id })).status, "stopped");
 	setIdle(true);
-	handlers.agent_settled();
+	handlers.agent_settled({ aborted: false });
 	await new Promise((resolve) => setTimeout(resolve, 50));
 	assert.deepEqual(messages, []);
 });
@@ -159,7 +159,7 @@ test("a script awaiting a resume gets that launch's report, leaving an earlier o
 	await call("subagent_stop", { id });
 	assert.equal((await resumed).status, "stopped");
 	setIdle(true);
-	handlers.agent_settled();
+	handlers.agent_settled({ aborted: false });
 	assert.match(messages[0], /\nfirst\n/);
 });
 
@@ -169,7 +169,7 @@ test("a reopened session delivers a queued report even after a later one reached
 	const { id } = await first.call("subagent_start", { subagent_type: "explore", prompt: "first", description: "d" });
 	await new Promise((resolve) => setTimeout(resolve, 300)); // Queued: the parent is busy.
 	assert.equal((await first.script("subagent_continue", { id, message: "second" })).result, "second");
-	first.handlers.agent_settled(); // The turn with the script's result ends.
+	first.handlers.agent_settled({ aborted: false }); // The turn with the script's result ends.
 	await first.handlers.session_shutdown();
 	const [notification] = load(0, {}, entries).messages;
 	assert.equal(notification.match(/Report: /g)?.length, 1);
@@ -195,7 +195,7 @@ test("cancelling a script's call stops the subagent it started, so no report arr
 	await assert.rejects(waiting, /^Error: Cancelled; sa-\w+ stopped\. subagent_message resumes it\.$/);
 	await new Promise((resolve) => setTimeout(resolve, 500));
 	setIdle(true);
-	handlers.agent_settled();
+	handlers.agent_settled({ aborted: false });
 	assert.deepEqual(messages, []);
 });
 
@@ -205,11 +205,21 @@ test("a report that settles while the parent is busy wakes it once idle", async 
 	await new Promise((resolve) => setTimeout(resolve, 300));
 	assert.deepEqual(messages, []);
 	setIdle(true);
-	handlers.agent_settled();
+	handlers.agent_settled({ aborted: false });
 	await new Promise((resolve) => setTimeout(resolve, 50));
 	assert.equal(messages.length, 2);
 	assert.match(messages[0], /^<subagent_notification>\n.*completed[\s\S]*\nhello\n<\/subagent_notification>$/);
 	assert.equal(messages[1], "Subagent reports arrived above. Continue the task they belong to, or report to the user.");
+});
+
+test("after Esc, reports join the conversation without waking the parent", async () => {
+	const { call, handlers, messages, setIdle } = load(0);
+	await call("subagent_start", { subagent_type: "explore", prompt: "hello", description: "d" });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	setIdle(true);
+	handlers.agent_settled({ aborted: true });
+	assert.equal(messages.length, 1);
+	assert.match(messages[0], /^<subagent_notification>/);
 });
 
 test("a wake names the subagents still running", async () => {
@@ -219,7 +229,7 @@ test("a wake names the subagents still running", async () => {
 	await call("subagent_start", { ...start, prompt: "hello" });
 	await new Promise((resolve) => setTimeout(resolve, 300));
 	setIdle(true);
-	handlers.agent_settled();
+	handlers.agent_settled({ aborted: false });
 	assert.match(messages[1], new RegExp(`Still running: ${slow}; their reports will wake you too\\.$`));
 	await call("subagent_stop", { id: slow });
 });
@@ -233,16 +243,16 @@ test("a finished run stays in the widget until a turn with its report ends; a st
 	await new Promise((resolve) => setTimeout(resolve, 300));
 	assert.match(drawWidget()![0], new RegExp(`^✓ ${id} d · completed · \\d+(?:m\\d+)?s$`));
 	setIdle(true);
-	handlers.agent_settled(); // Delivers the report and wakes the parent.
+	handlers.agent_settled({ aborted: false }); // Delivers the report and wakes the parent.
 	assert.match(drawWidget()![0], new RegExp(`^✓ ${id} d · completed · \\d+(?:m\\d+)?s$`));
-	handlers.agent_settled(); // The woken turn ends.
+	handlers.agent_settled({ aborted: false }); // The woken turn ends.
 	assert.equal(drawWidget(), undefined);
 
 	// Returned to a script in a busy parent's turn.
 	setIdle(false);
 	const waited = await script("subagent_run", { ...start, prompt: "hi" });
 	assert.match(drawWidget()![0], new RegExp(`^✓ ${waited.id} d · completed · \\d+(?:m\\d+)?s$`));
-	handlers.agent_settled();
+	handlers.agent_settled({ aborted: false });
 	assert.equal(drawWidget(), undefined);
 
 	// Finished, then resumed and stopped before its first report arrived.
@@ -270,7 +280,7 @@ test("a reopened session reports runs it never heard from, once, without waking 
 		new RegExp(`${cut} \\(explore: d\\) stopped\\n\\n\\(Stopped when the parent session ended`),
 	);
 	assert.equal((await second.script("subagent_continue", { id: cut, message: "go on" })).result, "go on");
-	second.handlers.agent_settled();
+	second.handlers.agent_settled({ aborted: false });
 	await second.handlers.session_shutdown();
 	assert.deepEqual(load(0, {}, entries).messages, []);
 });
@@ -310,7 +320,7 @@ test("a message that arrives as a run finishes resumes it without losing the fir
 	assert.equal((await call("subagent_message", { id, message: "second" })).delivered, "resume");
 	await new Promise((resolve) => setTimeout(resolve, 300));
 	setIdle(true);
-	handlers.agent_settled();
+	handlers.agent_settled({ aborted: false });
 	assert.match(messages[0], /\nslow first\n[\s\S]*\nsecond\n/);
 });
 
@@ -354,7 +364,7 @@ test("a resume that fails to start fails the message, and its report isn't sent 
 		process.argv[1] = fakePi;
 	}
 	setIdle(true);
-	handlers.agent_settled();
+	handlers.agent_settled({ aborted: false });
 	await new Promise((resolve) => setTimeout(resolve, 50));
 	assert.deepEqual(messages, []);
 });
