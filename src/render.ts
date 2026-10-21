@@ -36,17 +36,17 @@ export function runLine(v: RunView, theme: Theme): string {
 	const reason = v.status === "failed" ? firstLines(safeText(v.error ?? ""), 1)[0]?.trim() : undefined;
 	const state =
 		v.status === "running" && v.state
-			? theme.fg("muted", v.state)
+			? theme.fg("muted", oneLine(v.state))
 			: theme.fg(color, reason ? `failed: ${reason}` : v.status);
 	// Without the type (the widget), the bold id sets off the description well enough.
 	const type = v.type ? ` ${theme.fg("muted", v.type)}${sep}` : " ";
 	const metadata = [
-		...(v.model ? [shortModel(v.model)] : []),
+		...(v.model ? [oneLine(shortModel(v.model))] : []),
 		...(v.contextTokens ? [`${k(v.contextTokens)} ctx`] : []),
 		...(v.elapsedMs !== undefined ? [elapsed(v.elapsedMs)] : []),
 	];
 	return [
-		`${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))}${type}${theme.fg("text", v.description)}${sep}${state}`,
+		`${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))}${type}${theme.fg("text", oneLine(v.description))}${sep}${state}`,
 		...metadata.map((text) => theme.fg("muted", text)),
 	].join(sep);
 }
@@ -89,12 +89,15 @@ const safeText = (text: string) =>
 		.replace(/\r\n?/g, "\n")
 		.replace(/\p{Cc}/gu, (c) => (c === "\n" ? c : `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`));
 
+/** For text from the model or the child that must stay on one line. */
+const oneLine = (text: string) => safeText(text).replace(/\n/g, " ");
+
 const collapsed = (texts: string[], theme: Theme) => lines([...texts, expandHint(theme)], theme);
 
 /** A report's full view: its summary, model, transcript link, error, and result. */
 function reportSection(r: Report, theme: Theme, color: BodyColor = "toolOutput"): Component {
 	const parts: Component[] = [wrapped(runLine(r, theme))];
-	if (r.model) parts.push(wrapped(theme.fg("muted", `model: ${r.model}`)));
+	if (r.model) parts.push(wrapped(theme.fg("muted", `model: ${oneLine(r.model)}`)));
 	if (r.session_path)
 		parts.push(wrapped(theme.fg("muted", hyperlink(r.session_path, pathToFileURL(r.session_path).href))));
 	if (r.error) parts.push(new Spacer(1), wrapped(theme.fg(color, safeText(r.error))));
@@ -131,10 +134,10 @@ type Ctx = { expanded: boolean };
 
 function startHeading(args: StartArgs, theme: Theme): string {
 	const head = [
-		`${title("subagent_start", theme)} ${theme.fg("muted", args.subagent_type ?? "general-purpose")}`,
-		theme.fg("text", args.description ?? ""),
+		`${title("subagent_start", theme)} ${theme.fg("muted", oneLine(args.subagent_type ?? "general-purpose"))}`,
+		theme.fg("text", oneLine(args.description ?? "")),
 	];
-	if (args.model) head.push(theme.fg("muted", args.model));
+	if (args.model) head.push(theme.fg("muted", oneLine(args.model)));
 	return head.join(theme.fg("muted", " · "));
 }
 
@@ -145,7 +148,7 @@ export const startRenderers = {
 			? [new Spacer(1), markdown(prompt, theme, "toolOutput")]
 			: [
 					lines(
-						firstLines(prompt, 2).map((l) => theme.fg("muted", l)),
+						firstLines(safeText(prompt), 2).map((l) => theme.fg("muted", l)),
 						theme,
 					),
 				];
@@ -162,10 +165,10 @@ export const startRenderers = {
 export const messageRenderers = {
 	renderCall(args: { id?: string; message?: string }, theme: Theme, ctx: Ctx) {
 		const message = args.message ?? "";
-		const head = `${title("subagent_message", theme)} ${theme.fg("text", args.id ?? "")}`;
+		const head = `${title("subagent_message", theme)} ${theme.fg("text", oneLine(args.id ?? ""))}`;
 		return ctx.expanded
 			? new VStack([lines([head], theme), new Spacer(1), markdown(message, theme, "toolOutput")])
-			: lines([head, ...firstLines(message, 1).map((l) => theme.fg("muted", l))], theme);
+			: lines([head, ...firstLines(safeText(message), 1).map((l) => theme.fg("muted", l))], theme);
 	},
 	renderResult(
 		result: Result<{ delivered: "steer" | "resume" }>,
@@ -185,7 +188,7 @@ export const messageRenderers = {
 
 export const stopRenderers = {
 	renderCall(args: { id?: string }, theme: Theme) {
-		return lines([`${title("subagent_stop", theme)} ${theme.fg("text", args.id ?? "")}`], theme);
+		return lines([`${title("subagent_stop", theme)} ${theme.fg("text", oneLine(args.id ?? ""))}`], theme);
 	},
 	renderResult(result: Result<{ run: Report }>, _opts: unknown, theme: Theme, ctx: Ctx = { expanded: false }) {
 		if (!result.details?.run) return textResult(result, theme, ctx);
