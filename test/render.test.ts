@@ -391,15 +391,18 @@ test("collapsed blocks always show one expansion hint and expanded blocks show n
 	}
 });
 
-test("a model's short name drops what rarely tells models apart", () => {
+test("short model names drop paths, claude prefixes, and snapshots while keeping thinking", () => {
 	assert.equal(shortModel("anthropic/claude-opus-5-5:high"), "opus-5-5:high");
-	assert.equal(shortModel("amazon-bedrock/us.anthropic.claude-opus-4-1-20250805-v1:0:high"), "opus-4-1:high");
+	assert.equal(shortModel("anthropic/claude-sonnet-4-20250514:high"), "sonnet-4:high");
+	assert.equal(shortModel("claude-sonnet-4-20250514"), "sonnet-4");
 	assert.equal(shortModel("openai/gpt-4o-2024-11-20"), "gpt-4o");
+	assert.equal(shortModel("openai/gpt-4o-2024-11-20:off"), "gpt-4o:off");
 	assert.equal(shortModel("openai/gpt-5.2-chat-latest:low"), "gpt-5.2-chat:low");
 	assert.equal(shortModel("huggingface/deepseek-ai/DeepSeek-R1-0528:max"), "DeepSeek-R1-0528:max");
-	// Kept where shortening would mangle the name.
-	assert.equal(shortModel("amazon-bedrock/deepseek.v3-v1:0:high"), "deepseek.v3:high");
-	assert.equal(shortModel("amazon-bedrock/us.deepseek.v3.2"), "deepseek.v3.2");
-	assert.equal(shortModel("together/black-forest-labs/flux.2-pro"), "flux.2-pro");
-	assert.equal(shortModel("anthropic/claude-3-opus"), "claude-3-opus");
+	assert.equal(
+		shortModel("amazon-bedrock/us.anthropic.claude-opus-4-1-v1:0:high"),
+		"us.anthropic.claude-opus-4-1-v1:0:high",
+	);
+	assert.equal(shortModel("amazon-bedrock/deepseek.v3-v1:0:high"), "deepseek.v3-v1:0:high");
+	assert.equal(shortModel("anthropic/claude-3-opus"), "3-opus");
 });

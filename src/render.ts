@@ -314,25 +314,11 @@ function argsText(args: unknown, max: number): string {
 	return cut && text ? `${text}…` : text;
 }
 
-const THINKING = /:(off|minimal|low|medium|high|xhigh|max)$/;
-
-/**
- * `provider/id:thinking` shortened for display. Each rule is scoped to ids it can't mangle: a long name
- * beats a wrong one.
- */
 export function shortModel(model: string): string {
-	const thinking = model.match(THINKING)?.[0] ?? "";
-	const full = model.slice(0, model.length - thinking.length);
-	let id = full.slice(full.lastIndexOf("/") + 1); // Provider, org, and gateway paths.
-	if (full.startsWith("amazon-bedrock/"))
-		id = id
-			.replace(/^([a-z-]+\.){1,2}(?=[a-z]{2})/, "") // Region and vendor (`us.anthropic.`), but not `deepseek.v3`.
-			.replace(/-v\d+:\d+$/, ""); // Version: `-v1:0`.
-	id = id
-		.replace(/-(\d{8}|\d{4}-\d{2}-\d{2})$/, "") // A dated snapshot of an alias.
-		.replace(/-latest$/, "")
-		.replace(/^claude-(?=[a-z])/, ""); // `opus-4-5`, but not `3-opus`.
-	return (id || full) + thinking;
+	return model
+		.slice(model.lastIndexOf("/") + 1)
+		.replace(/^claude-/, "")
+		.replace(/-(?:latest|\d{8}|\d{4}-\d{2}-\d{2})(:[^:]*)?$/, "$1");
 }
 
 const k = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
