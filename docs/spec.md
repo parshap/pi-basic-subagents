@@ -6,7 +6,7 @@ What pi-basic-subagents does: the behavior contract. How it's drawn is in [ux.md
 
 The design principles are in the [README](../README.md#design). Beyond those:
 
-- The model's tools never block, so it stays free to talk to the user; reports wake it. Scripts call the same tools, and wait only through `subagent_start_and_wait`, as Claude Code's workflow scripts use `agent()`. Why: [research memo](research/2026-10-20-subagent-waiting.md).
+- The model's tools never block, so it stays free to talk to the user; reports wake it. Their results say a report starts a new turn after the model ends its own, since it can't arrive sooner: a model that sleeps to wait only delays it. Scripts call the same tools, and wait only through `subagent_start_and_wait`, as Claude Code's workflow scripts use `agent()`. Why: [research memo](research/2026-10-20-subagent-waiting.md).
 - Subagents have no types: each gets the same role prompt, and specialization comes from the parent's prompt and skills. Claude Code's types limit tools; here a type could only be an instruction, which the parent's prompt already carries.
 - Not included: chains or workflow definitions (codemode scripts cover them), custom agent files, per-subagent tool restrictions, worktree isolation, or a channel for a subagent to ask its parent questions.
 
@@ -16,7 +16,7 @@ The design principles are in the [README](../README.md#design). Beyond those:
 |---|---|---|---|
 | `subagent_start` | the model and scripts | `prompt`, `description`, `model?` | as soon as the child is running: `{ id }` |
 | `subagent_message` | the model and scripts | `id`, `message` | once the child accepts it, saying whether it resumed it: `{ id, resumed }` |
-| `subagent_stop` | the model and scripts | `id` | its status: stopped (adding that `subagent_message` resumes it), or how it had already finished (adding that its report will wake the parent, if it hasn't yet): `{ id, status }` |
+| `subagent_stop` | the model and scripts | `id` | its status: stopped (adding that `subagent_message` resumes it), or how it had already finished (adding that its report will start a new turn, if it hasn't yet): `{ id, status }` |
 | `subagent_start_and_wait` | scripts | as `subagent_start` | once it finishes: the report, `{ id, description, status, result?, session_path? }`; a failed run's `result` is its error |
 
 Scripts get the structured results shown; the model reads them as text. In pi's terms, the model's tools are `direct` and `subagent_start_and_wait` is `codemode`, so the model can't call it and block. As in Claude Code's workflow scripts, a script waits only on subagents it starts: waiting on a resumed or running one would be a wait tool again, one line away. With codemode's `only` mode, the model reaches every tool through scripts.
