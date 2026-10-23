@@ -31,7 +31,7 @@ function respond(context: TranscriptContext): AssistantMessage {
 	const start = { subagent_type: "explore", description: "echo" };
 	if (results.length === 0) {
 		const code = [
-			`const r = await tools.subagent_run(${JSON.stringify({ ...start, prompt: "scripted" })});`,
+			`const r = await tools.subagent_start_and_wait(${JSON.stringify({ ...start, prompt: "scripted" })});`,
 			`const { id } = await tools.subagent_start(${JSON.stringify({ ...start, prompt: "background" })});`,
 			"const { status } = await tools.subagent_stop({ id });",
 			'return r.result + " " + status;',
