@@ -212,7 +212,8 @@ test("a resume racing a stop isn't stopped by it, and the stopped launch's pendi
 	assert.equal(await resumed, "resume");
 });
 
-test("the current tool is the latest call still running", () => {
+test("the current tool is the latest call still running, then the last one for a moment", (t) => {
+	t.mock.timers.enable({ apis: ["Date"] });
 	const { run } = fakeRun();
 	const event = (e: object) => (run as any).handle(JSON.stringify(e), new Map(), true);
 	event({ type: "tool_execution_start", toolCallId: "a", toolName: "read", args: {} });
@@ -220,5 +221,11 @@ test("the current tool is the latest call still running", () => {
 	event({ type: "tool_execution_end", toolCallId: "b" });
 	assert.equal(run.currentTool?.name, "read");
 	event({ type: "tool_execution_end", toolCallId: "a" });
+	assert.equal(run.currentTool?.name, "read");
+	t.mock.timers.tick(1500);
 	assert.equal(run.currentTool, undefined);
+	event({ type: "tool_execution_start", toolCallId: "c", toolName: "bash", args: {} });
+	event({ type: "tool_execution_end", toolCallId: "c" });
+	(run as any).finish("completed", "");
+	assert.equal(run.currentTool, undefined, "a resumed run doesn't show the last launch's tool");
 });

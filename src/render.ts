@@ -11,7 +11,6 @@ import {
 	type TUI,
 	truncateToWidth,
 	VStack,
-	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { type Run, type RunView, STATUSES, type Status } from "./run.ts";
@@ -44,8 +43,9 @@ export function runLine(v: RunView, theme: Theme): string {
 		...(v.elapsedMs !== undefined ? [elapsed(v.elapsedMs)] : []),
 	];
 	return [
-		`${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))} ${theme.fg("text", oneLine(v.description))}${sep}${state}`,
+		`${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))} ${theme.fg("text", oneLine(v.description))}`,
 		...metadata.map((text) => theme.fg("muted", text)),
+		state,
 	].join(sep);
 }
 
@@ -246,7 +246,7 @@ export class Widget {
 		this.ui.setWidget(WIDGET_KEY, (tui, theme) => {
 			this.tui = tui;
 			return {
-				render: (width) => lines(widgetLines(this.runs(), width, theme), theme).render(width),
+				render: (width) => lines(widgetLines(this.runs(), theme), theme).render(width),
 				invalidate() {},
 			};
 		});
@@ -259,8 +259,8 @@ const WIDGET_MAX = 5;
  * The widget's lines: past WIDGET_MAX, 4 rows in start order, preferring running subagents over finished
  * ones, then a count of the rest by status.
  */
-export function widgetLines(runs: Run[], width: number, theme: Theme): string[] {
-	if (runs.length <= WIDGET_MAX) return runs.map((r) => widgetLine(r, width, theme));
+export function widgetLines(runs: Run[], theme: Theme): string[] {
+	if (runs.length <= WIDGET_MAX) return runs.map((r) => widgetLine(r, theme));
 	const live = runs.filter((r) => r.status === "running");
 	const picked = new Set([...live, ...runs.filter((r) => !live.includes(r))].slice(0, WIDGET_MAX - 1));
 	const rest = runs.filter((r) => !picked.has(r));
@@ -271,45 +271,47 @@ export function widgetLines(runs: Run[], width: number, theme: Theme): string[] 
 		return n ? [`${theme.fg(STATUS[s].color, STATUS[s].glyph)} ${theme.fg("muted", `${n} ${s}`)}`] : [];
 	});
 	return [
-		...runs.filter((r) => picked.has(r)).map((r) => widgetLine(r, width, theme)),
+		...runs.filter((r) => picked.has(r)).map((r) => widgetLine(r, theme)),
 		[theme.fg("muted", `+${rest.length} more`), ...counts].join(sep),
 	];
 }
 
-/** A widget Run line: the current tool's arguments get only the width the rest leaves free. */
-export function widgetLine(r: Run, width: number, theme: Theme): string {
+const ARGS_MAX = 50;
+const SLOW_TOOL_MS = 5000;
+
+/** A widget Run line: the current tool, its time once slow, and its arguments. */
+export function widgetLine(r: Run, theme: Theme): string {
 	const view = r.view();
 	const tool = view.status === "running" ? r.currentTool : undefined;
-	const line = (args?: string) =>
-		runLine({ ...view, state: tool ? `${tool.name}${args ? ` ${args}` : ""}` : "thinking" }, theme);
-	const base = line();
-	const free = width - visibleWidth(base) - 1; // 1 for the space before the arguments.
-	const args = free >= 3 ? argsText(tool?.args, free + 1) : "";
-	// Stripped: truncateToWidth's reset would end the muted color. args has no escapes of its own left.
-	return args ? line(stripTerminalSequences(truncateToWidth(args, free, "…"))) : base;
+	if (!tool) return runLine({ ...view, state: "thinking" }, theme);
+	const ms = (tool.endedAt ?? Date.now()) - tool.startedAt;
+	const state = [tool.name, ms >= SLOW_TOOL_MS ? elapsed(ms) : "", argsText(tool.args, ARGS_MAX)];
+	return runLine({ ...view, state: state.filter(Boolean).join(" ") }, theme);
 }
 
 /**
- * About `max` characters of the string arguments on one line: `path` first, then the rest (e.g. edit's
- * text). Reads only that much of each string, so huge arguments cost nothing; control characters are
+ * At most `max` characters of the string arguments' first lines: `path` first, then the rest (e.g. edit's
+ * text). Reads only about that much of each string, so huge arguments cost nothing; control characters are
  * escaped so they print instead of driving the terminal.
  */
 function argsText(args: unknown, max: number): string {
 	let out = "";
-	let cut = false; // Collapsing whitespace can leave it short of `max` with more unread.
+	let cut = false; // Whether a later line or more arguments go unshown.
 	// Deep enough for edit's `edits[i].newText`; a cap so nested arguments can't overflow the stack.
 	const add = (v: unknown, depth = 0) => {
-		if (out.length >= max) cut = true;
+		if (out.length > max) cut = true;
 		else if (typeof v === "string") {
-			cut ||= v.length > max - out.length;
-			out = `${out} ${v.slice(0, max - out.length)}`.replace(/\s+/g, " ").trimStart();
+			const s = v.slice(0, max + 1).trim();
+			const line = s.split("\n", 1)[0];
+			cut ||= line !== s || v.trim().length > s.length;
+			if (line) out = `${out} ${line}`.replace(/\s+/g, " ").trim();
 		} else if (v && typeof v === "object" && depth < 3) for (const x of Object.values(v)) add(x, depth + 1);
 	};
 	const { path, ...rest } = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
 	add(path);
 	add(rest);
-	const text = out.trim().replace(/\p{Cc}/gu, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
-	return cut && text ? `${text}…` : text;
+	const text = out.replace(/\p{Cc}/gu, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+	return text.length > max ? `${text.slice(0, max).trimEnd()}…` : cut && text ? `${text}…` : text;
 }
 
 export function shortModel(model: string): string {

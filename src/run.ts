@@ -39,6 +39,9 @@ const DIALOGS = new Set(["select", "confirm", "input", "editor"]);
 const STDERR_TAIL = 4096;
 const STARTUP_TIMEOUT_MS = 60_000;
 const EXIT_GRACE_MS = 10_000;
+const TOOL_HOLD_MS = 1500;
+
+export type Tool = { name: string; args: unknown; startedAt: number; endedAt?: number };
 
 // Unref'd so pending cleanup never holds the parent open; the child exits on stdin EOF anyway.
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms).unref());
@@ -70,7 +73,9 @@ export class Run {
 	error: string | undefined;
 	sessionPath: string | undefined;
 	/** Tool calls in flight, by call id; pi runs a message's tool calls in parallel. */
-	readonly tools = new Map<string, { name: string; args: unknown }>();
+	readonly tools = new Map<string, Tool>();
+	/** The latest finished tool call, shown for a moment so fast tool and thinking turns don't flicker. */
+	private lastTool: Tool | undefined;
 	startedAt: number | undefined;
 	/** The child's context size as of its latest model response, as pi's footer shows it. */
 	contextTokens: number | undefined;
@@ -99,9 +104,11 @@ export class Run {
 		this.opts = opts;
 	}
 
-	/** The latest tool call still running. */
-	get currentTool() {
-		return [...this.tools.values()].at(-1);
+	/** The latest tool call still running, else one that ended under TOOL_HOLD_MS ago. */
+	get currentTool(): Tool | undefined {
+		const last = this.lastTool;
+		const held = last?.endedAt !== undefined && Date.now() - last.endedAt < TOOL_HOLD_MS ? last : undefined;
+		return [...this.tools.values()].at(-1) ?? held;
 	}
 
 	get id() {
@@ -294,11 +301,14 @@ export class Run {
 				if (DIALOGS.has(event.method)) this.write({ type: "extension_ui_response", id: event.id, cancelled: true });
 				break;
 			case "tool_execution_start":
-				this.tools.set(event.toolCallId, { name: event.toolName, args: event.args });
+				this.tools.set(event.toolCallId, { name: event.toolName, args: event.args, startedAt: Date.now() });
 				break;
-			case "tool_execution_end":
+			case "tool_execution_end": {
+				const tool = this.tools.get(event.toolCallId);
+				if (tool) this.lastTool = { ...tool, endedAt: Date.now() };
 				this.tools.delete(event.toolCallId);
 				break;
+			}
 			case "message_end":
 				if (event.message?.role === "assistant") {
 					this.lastAssistant = event.message;
@@ -353,6 +363,7 @@ export class Run {
 		this.result = result;
 		this.error = status === "failed" ? result : undefined;
 		this.tools.clear();
+		this.lastTool = undefined;
 		// The process lives only while a run is active; closing stdin lets it exit cleanly.
 		this.proc?.stdin?.end();
 		void reap(this.proc, this.exited, EXIT_GRACE_MS);
