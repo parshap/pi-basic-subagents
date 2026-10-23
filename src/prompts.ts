@@ -10,14 +10,15 @@ export const descriptions = {
 	start: (maxConcurrent: number) =>
 		[
 			"Start a subagent: a fresh pi session with your tools, skills, and project context, but not this conversation.",
-			`It returns at once, and its report wakes you later. At most ${maxConcurrent} run at once; more fail.`,
-			"Types: explore is asked not to change the project (research, review, verification); general-purpose (the default) can change things.",
+			`It returns at once, and you'll be notified when it finishes. At most ${maxConcurrent} run at once.`,
 		].join(" "),
 	startAndWait:
-		"Like subagent_start, but resolves with the subagent's report once it finishes. Cancelling the call, as when the script ends, stops the subagent. The user can't talk to you until the script ends, so use it only when the script needs the report; otherwise use subagent_start.",
+		"Like subagent_start, but resolves with its report. A subagent still running when the script ends is stopped. The user can't talk to you until the script ends, so use it only when the script needs the report; otherwise use subagent_start.",
 	message:
 		"Send a message to a subagent. A running one gets it after its current step; a finished or stopped one resumes with its history and reports again.",
 	stop: "Stop a running subagent. subagent_message resumes it.",
+	subagentType:
+		"explore: asked not to make changes (research, review, verification). general-purpose (the default): can change things.",
 	prompt: "All the subagent sees: the goal, relevant context, constraints, and what to report.",
 	description: "3-5 words, for display.",
 	model: 'Model as "provider/id" with optional ":thinking". Defaults to the current model.',
@@ -27,22 +28,21 @@ export const descriptions = {
 
 export const results = {
 	// Right where the model decides what's next; a description alone doesn't stop the reflexive wait.
-	started: (id: string) => `Started ${id}; its report will wake you. Do other work or end your turn.`,
+	started: (id: string) => `Started ${id}. You'll be notified when it finishes. Do other work or end your turn.`,
 	/** `finished` is the status of a report the model hasn't had yet: it may not know the run had finished. */
 	sent: (id: string, resumed: boolean, finished?: Status) => {
-		const sent = resumed ? `Resumed ${id}` : `Sent to ${id} after its current step`;
-		return finished
-			? `${sent}, which had ${finished}; its reports will wake you.`
-			: `${sent}; its report will wake you.`;
+		if (finished) return `Resumed ${id}, which had ${finished}. You'll be notified of both reports.`;
+		return `${resumed ? "Resumed" : "Sent to"} ${id}. You'll be notified when it finishes.`;
 	},
 	stop: (id: string, status: Status, queued: boolean) => {
-		const tail = status === "stopped" ? ". subagent_message resumes it." : queued ? "; its report will wake you." : ".";
+		const tail =
+			status === "stopped" ? ". subagent_message resumes it." : queued ? ". You'll be notified with its report." : ".";
 		return `${id}: ${status}${tail}`;
 	},
 };
 
 export const errors = {
-	atCapacity: (max: number) => `${max} subagents are already running. Try again after one reports.`,
+	atCapacity: (max: number) => `${max} subagents are already running. Try again after one finishes.`,
 	cancelled: (id: string) => `Cancelled; ${id} stopped. subagent_message resumes it.`,
 	unknownId: (id: string) => `Unknown subagent id: ${id}`,
 };
@@ -50,9 +50,9 @@ export const errors = {
 // Reports.
 
 /** A stopped run's result. */
-export const STOPPED = "(Stopped. Resume it with subagent_message.)";
+export const STOPPED = "(Stopped. subagent_message resumes it.)";
 /** The result of a run the parent session's exit cut short. */
-export const INTERRUPTED = "(Stopped when the parent session ended. Resume it with subagent_message.)";
+export const INTERRUPTED = "(Stopped when the parent session ended. subagent_message resumes it.)";
 
 /**
  * A report as the model reads it, without the metrics the UI shows. The transcript path is left out too:
@@ -71,7 +71,7 @@ export const notification = (reports: Report[]) =>
 export function wakePrompt(running: string[]): string {
 	const text = "Subagent reports arrived above. Continue the task they belong to, or report to the user.";
 	// Said outright: a wake with only some of a batch's reports is when a model reaches for a wait.
-	return running.length ? `${text} Still running: ${running.join(", ")}; their reports will wake you too.` : text;
+	return running.length ? `${text} Still running: ${running.join(", ")}; you'll be notified when they finish.` : text;
 }
 
 /** Appended to a truncated result; `file` holds the full report, when it could be written. */
