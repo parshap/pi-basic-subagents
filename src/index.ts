@@ -456,11 +456,17 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			outputSchema: Type.Object({ id: Type.String(), resumed: Type.Boolean() }),
 			async execute(_toolCallId, params, signal) {
 				const { run, how } = await sendTo(params.id, params.message, signal);
-				// What happens next, so the model doesn't wait to find out.
-				const sent = how === "resume" ? `Resumed ${run.id}` : `Sent to ${run.id} after its current step`;
+				// What happens next, so the model doesn't wait to find out. It may not know the run had finished, as
+				// reports wait for its turn to end.
+				const resumed = how === "resume";
+				const before = resumed ? outbox.findLast((r) => r.id === run.id) : undefined;
+				const sent = resumed ? `Resumed ${run.id}` : `Sent to ${run.id} after its current step`;
+				const text = before
+					? `${sent}, which had ${before.status}; its reports will wake you.`
+					: `${sent}; its report will wake you.`;
 				return {
-					content: [{ type: "text", text: `${sent}; its report will wake you.` }],
-					structuredContent: { id: run.id, resumed: how === "resume" },
+					content: [{ type: "text", text }],
+					structuredContent: { id: run.id, resumed },
 					details: { delivered: how },
 				};
 			},
@@ -478,9 +484,12 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			async execute(_toolCallId, params) {
 				const run = getRun(params.id);
 				await run.stop();
-				const resumes = run.status === "stopped" ? " subagent_message resumes it." : "";
+				const queued = outbox.some((r) => r.id === run.id);
+				const tail =
+					run.status === "stopped" ? ". subagent_message resumes it." : queued ? "; its report will wake you." : ".";
+				const text = `${run.id}: ${run.status}${tail}`;
 				return {
-					content: [{ type: "text", text: `${run.id}: ${run.status}.${resumes}` }],
+					content: [{ type: "text", text }],
 					structuredContent: { id: run.id, status: run.status },
 					details: { run: { ...run.view(), session_path: run.sessionPath } },
 				};

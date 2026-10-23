@@ -271,6 +271,20 @@ test("a fork doesn't take over its original's subagents", async () => {
 	await assert.rejects(fork.call("subagent_message", { id, message: "more" }), /Unknown subagent id/);
 });
 
+test("stopping or messaging a finished run whose report hasn't arrived says it will wake the parent", async () => {
+	const { callText, handlers, setIdle } = load(0);
+	const text = await callText("subagent_start", { subagent_type: "explore", prompt: "hello", description: "d" });
+	const id = text.split(" ")[1].slice(0, -1);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	assert.equal(await callText("subagent_stop", { id }), `${id}: completed; its report will wake you.`);
+	const resumed = await callText("subagent_message", { id, message: "again" });
+	assert.equal(resumed, `Resumed ${id}, which had completed; its reports will wake you.`);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	setIdle(true);
+	handlers.agent_settled({ aborted: false });
+	assert.equal(await callText("subagent_stop", { id }), `${id}: completed.`);
+});
+
 test("a resumed run cut short by shutdown reopens as stopped", async () => {
 	const entries: any[] = [];
 	const first = load(0, {}, entries);
