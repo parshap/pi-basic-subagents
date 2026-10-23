@@ -425,8 +425,8 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		return { run, done };
 	}
 
-	// The model's tools return at once, so it never blocks; scripts get their own tools that wait, as Claude Code
-	// has Agent for the model and agent() for workflow scripts. Each then describes one behavior.
+	// The model's tools return at once, so it never blocks, and scripts can call them too; only scripts get tools
+	// that wait, as Claude Code has Agent for the model and agent() for workflow scripts.
 	function registerTools() {
 		pi.registerTool({
 			name: "subagent_start",
@@ -436,13 +436,13 @@ export default function basicSubagents(pi: ExtensionAPI) {
 				`It returns at once, and its report wakes you later. At most ${config.maxConcurrent} run at once; more fail.`,
 				"Types: explore is asked not to change the project (research, review, verification); general-purpose (the default) can change things.",
 			].join(" "),
-			exposure: "model-only",
 			parameters: startParams,
+			outputSchema: Type.Object({ id: Type.String() }),
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const { run } = await startRun(params, signal, ctx);
 				// Right where the model decides what's next; a description alone doesn't stop the reflexive wait.
 				const text = `Started ${run.id}; its report will wake you. Do other work or end your turn.`;
-				return { content: [{ type: "text", text }], details: { id: run.id } };
+				return { content: [{ type: "text", text }], structuredContent: { id: run.id }, details: { id: run.id } };
 			},
 			...startRenderers,
 		});
@@ -450,7 +450,6 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		pi.registerTool({
 			name: "subagent_run",
 			label: "Subagent run",
-			// subagent_start, which it refers to, stays declared even with codemode.mode "only": that hides only tools scripts can call.
 			description:
 				"Like subagent_start, but resolves with the subagent's report once it finishes. Cancelling the call, as when the script ends, stops the subagent. The user can't talk to you until the script ends, so use it only when the script needs the report; otherwise use subagent_start.",
 			exposure: "codemode",
@@ -472,16 +471,20 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			label: "Subagent message",
 			description:
 				"Send a message to a subagent. A running one gets it after its current step; a finished or stopped one resumes with its history and reports again.",
-			exposure: "model-only",
 			// Changes a run's state, so calls on one subagent in the same message take effect in order. Like
 			// Claude Code's non-concurrency-safe tools; pi makes the whole message sequential.
 			executionMode: "sequential",
 			parameters: messageParams,
+			outputSchema: Type.Object({ id: Type.String(), resumed: Type.Boolean() }),
 			async execute(_toolCallId, params, signal) {
 				const { run, how } = await sendTo(params.id, params.message, signal);
 				// What happens next, so the model doesn't wait to find out.
 				const sent = how === "resume" ? `Resumed ${run.id}` : `Sent to ${run.id} after its current step`;
-				return { content: [{ type: "text", text: `${sent}; its report will wake you.` }], details: { delivered: how } };
+				return {
+					content: [{ type: "text", text: `${sent}; its report will wake you.` }],
+					structuredContent: { id: run.id, resumed: how === "resume" },
+					details: { delivered: how },
+				};
 			},
 			...messageRenderers,
 		});
@@ -509,16 +512,17 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			name: "subagent_stop",
 			label: "Subagent stop",
 			description: "Stop a running subagent. subagent_message resumes it.",
-			exposure: "model-only",
 			// Changes a run's state, so it's ordered with the other calls in its message (see subagent_message).
 			executionMode: "sequential",
 			parameters: Type.Object({ id: Type.String() }),
+			outputSchema: Type.Object({ id: Type.String(), status: StringEnum(STATUSES) }),
 			async execute(_toolCallId, params) {
 				const run = getRun(params.id);
 				await run.stop();
 				const resumes = run.status === "stopped" ? " subagent_message resumes it." : "";
 				return {
 					content: [{ type: "text", text: `${run.id}: ${run.status}.${resumes}` }],
+					structuredContent: { id: run.id, status: run.status },
 					details: { run: { ...run.view(), session_path: run.sessionPath } },
 				};
 			},

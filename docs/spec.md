@@ -6,7 +6,7 @@ What pi-basic-subagents does: the behavior contract. How it's drawn is in [ux.md
 
 The design principles are in the [README](../README.md#design). Beyond those:
 
-- The model's tools never block, so it stays free to talk to the user; reports wake it. Scripts wait through their own tools, as Claude Code's workflow scripts use `agent()`. Why: [research memo](research/2026-10-20-subagent-waiting.md).
+- The model's tools never block, so it stays free to talk to the user; reports wake it. Scripts call the same tools, and wait only through tools of their own, as Claude Code's workflow scripts use `agent()`. Why: [research memo](research/2026-10-20-subagent-waiting.md).
 - The two types differ only in their role prompt; specialization comes from skills.
 - Not included: chains or workflow definitions (codemode scripts cover them), custom agent files, per-type tool restrictions, worktree isolation, or a channel for a subagent to ask its parent questions.
 
@@ -14,19 +14,19 @@ The design principles are in the [README](../README.md#design). Beyond those:
 
 | Tool | For | Parameters | Returns |
 |---|---|---|---|
-| `subagent_start` | the model | `subagent_type?` (`explore` \| `general-purpose`, the default), `prompt`, `description`, `model?` | as soon as the child is running |
-| `subagent_message` | the model | `id`, `message` | once the child accepts it, saying whether it steered or resumed |
-| `subagent_stop` | the model | `id` | its status: stopped (adding that `subagent_message` resumes it), or how it had already finished |
+| `subagent_start` | the model and scripts | `subagent_type?` (`explore` \| `general-purpose`, the default), `prompt`, `description`, `model?` | as soon as the child is running: `{ id }` |
+| `subagent_message` | the model and scripts | `id`, `message` | once the child accepts it, saying whether it resumed it: `{ id, resumed }` |
+| `subagent_stop` | the model and scripts | `id` | its status: stopped (adding that `subagent_message` resumes it), or how it had already finished: `{ id, status }` |
 | `subagent_run` | scripts | as `subagent_start` | once it finishes: the report, `{ id, type, description, status, result?, session_path? }`; a failed run's `result` is its error |
 | `subagent_continue` | scripts | as `subagent_message` | the run's next report. It only resumes, so a running id fails. |
 
-In pi's terms, the model's tools are `model-only` and the scripts' are `codemode`: scripts can't call the model's tools, and the model sees the scripts' tools only in codemode's description. With codemode's `only` mode, the model's tools stay declared, since pi hides only tools scripts can call; that keeps a way to delegate without blocking.
+Scripts get the structured results shown; the model reads them as text. In pi's terms, the model's tools are `direct` and the scripts' own are `codemode`, so the model can't call a waiting tool and block. With codemode's `only` mode, the model reaches every tool through scripts.
 
 - **Types.** Both types get a role prompt: complete the task and end with a concise report of what was done and the findings and evidence, don't undo changes it didn't make (others may share the directory), and make a reasonable guess rather than ask, stopping only when truly stuck. `explore` adds not changing the project or publishing or sending anything. That rule is advisory: nothing enforces it.
 - **Model.** `model` is `provider/id` with an optional `:thinking` suffix. It defaults to the parent's model and thinking level.
 - **Messages.** `subagent_message` steers a running subagent. A finished or stopped one resumes from its session with full history and reports again on completion. A resume counts toward `maxConcurrent`.
 - **Scripts.** `subagent_run` and `subagent_continue` wait for the run, like `await agent()` in a Claude Code workflow script, and the report they return isn't sent again. Like any tool call, a waiting script holds the user's messages until it ends. Cancelling the call (Esc, the script's deadline, or the script ending first) stops the subagent, as aborting a Claude Code workflow does, so its report can't flood the parent later.
-- **Ordering.** As with Claude Code's tools that change state, `subagent_message` and `subagent_stop` run in order with the other calls in their message, so calls on one subagent take effect in the order given. pi can only order a whole message, so its other calls run one at a time too. `subagent_start` calls run in parallel.
+- **Ordering.** As with Claude Code's tools that change state, `subagent_message` and `subagent_stop` run in order with the other calls in their message, so calls on one subagent take effect in the order given. pi can only order a whole message, so its other calls run one at a time too. `subagent_start` calls run in parallel. A script orders its own calls with `await`.
 - **Truncation.** Results over pi's tool-output limits (2000 lines or 50KB) are truncated, pointing to the report's file for the rest.
 - **Metrics.** For the UI only, a run keeps its model, duration (of its latest launch), and context size: the tokens in its latest model response, as pi's footer counts them. It carries across resumes and reopening, and drops after a compaction once the next response arrives.
 

@@ -17,7 +17,8 @@ const text = (content: unknown): string =>
 			: "";
 
 /**
- * The parent awaits a subagent in a codemode script, starts another directly and ends its turn, then
+ * The parent awaits a subagent in a codemode script, which also starts and stops one in the background,
+ * then starts another directly and ends its turn, then
  * repeats both reports once the second wakes it. A subagent answers its brief.
  */
 function respond(context: TranscriptContext): AssistantMessage {
@@ -29,7 +30,12 @@ function respond(context: TranscriptContext): AssistantMessage {
 	const results = messages.filter((m) => m.role === "toolResult");
 	const start = { subagent_type: "explore", description: "echo" };
 	if (results.length === 0) {
-		const code = `const r = await tools.subagent_run(${JSON.stringify({ ...start, prompt: "scripted" })}); return r.result;`;
+		const code = [
+			`const r = await tools.subagent_run(${JSON.stringify({ ...start, prompt: "scripted" })});`,
+			`const { id } = await tools.subagent_start(${JSON.stringify({ ...start, prompt: "background" })});`,
+			"const { status } = await tools.subagent_stop({ id });",
+			'return r.result + " " + status;',
+		].join("\n");
 		return fauxAssistantMessage(fauxToolCall("codemode", { code }), { stopReason: "toolUse" });
 	}
 	if (results.length === 1) {

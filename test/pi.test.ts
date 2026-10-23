@@ -57,7 +57,7 @@ test("a real pi gets reports from real pi children: awaited in a script, and by 
 		const final = assistantTexts.at(-1) ?? "";
 		assert.match(
 			final,
-			/^parent saw: Script completed[\s\S]*\npong: scripted \| <subagent_notification>[\s\S]*completed[\s\S]*pong: direct/,
+			/^parent saw: Script completed[\s\S]*\npong: scripted stopped \| <subagent_notification>[\s\S]*completed[\s\S]*pong: direct/,
 		);
 	} finally {
 		pi.stdin.end();
