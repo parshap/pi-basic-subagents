@@ -10,7 +10,7 @@ export const descriptions = {
 	start: (maxConcurrent: number) =>
 		[
 			"Start a subagent: a fresh pi session with your tools, skills, and project context, but not this conversation.",
-			`It returns at once, and you'll be notified when it finishes. At most ${maxConcurrent} run at once.`,
+			`It returns at once; its report starts a new turn after you end yours. At most ${maxConcurrent} run at once.`,
 		].join(" "),
 	startAndWait:
 		"Like subagent_start, but resolves with its report. A subagent still running when the script ends is stopped. The user can't talk to you until the script ends, so use it only when the script needs the report; otherwise use subagent_start.",
@@ -25,22 +25,27 @@ export const descriptions = {
 // Tool results and errors. Each says what happens next, so the model doesn't wait to find out.
 
 export const results = {
-	// Right where the model decides what's next; a description alone doesn't stop the reflexive wait.
-	started: (id: string) => `Started ${id}. You'll be notified when it finishes. Do other work or end your turn.`,
+	// Right where the model decides what's next; a description alone doesn't stop the reflexive wait. Saying the
+	// report can't arrive before the turn ends is what stops models from sleeping to wait for it.
+	started: (id: string) => `Started ${id}. Its report starts a new turn after you end yours.`,
 	/** `finished` is the status of a report the model hasn't had yet: it may not know the run had finished. */
 	sent: (id: string, resumed: boolean, finished?: Status) => {
-		if (finished) return `Resumed ${id}, which had ${finished}. You'll be notified of both reports.`;
-		return `${resumed ? "Resumed" : "Sent to"} ${id}. You'll be notified when it finishes.`;
+		if (finished) return `Resumed ${id}, which had ${finished}. Both reports start new turns after you end yours.`;
+		return `${resumed ? "Resumed" : "Sent to"} ${id}. Its report starts a new turn after you end yours.`;
 	},
 	stop: (id: string, status: Status, queued: boolean) => {
 		const tail =
-			status === "stopped" ? ". subagent_message resumes it." : queued ? ". You'll be notified with its report." : ".";
+			status === "stopped"
+				? ". subagent_message resumes it."
+				: queued
+					? ". Its report starts a new turn after you end yours."
+					: ".";
 		return `${id}: ${status}${tail}`;
 	},
 };
 
 export const errors = {
-	atCapacity: (max: number) => `${max} subagents are already running. Try again after one finishes.`,
+	atCapacity: (max: number) => `${max} subagents are already running. Try again after a report arrives.`,
 	cancelled: (id: string) => `Cancelled; ${id} stopped. subagent_message resumes it.`,
 	unknownId: (id: string) => `Unknown subagent id: ${id}`,
 };
@@ -69,7 +74,9 @@ export const notification = (reports: Report[]) =>
 export function wakePrompt(running: string[]): string {
 	const text = "Subagent reports arrived above. Continue the task they belong to, or report to the user.";
 	// Said outright: a wake with only some of a batch's reports is when a model reaches for a wait.
-	return running.length ? `${text} Still running: ${running.join(", ")}; you'll be notified when they finish.` : text;
+	return running.length
+		? `${text} Still running: ${running.join(", ")}; their reports start new turns after you end yours.`
+		: text;
 }
 
 /** Appended to a truncated result; `file` holds the full report, when it could be written. */
