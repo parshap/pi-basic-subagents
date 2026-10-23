@@ -17,8 +17,6 @@ export const descriptions = {
 	message:
 		"Send a message to a subagent. A running one gets it after its current step; a finished or stopped one resumes with its history and reports again.",
 	stop: "Stop a running subagent. subagent_message resumes it.",
-	subagentType:
-		"explore: asked not to make changes (research, review, verification). general-purpose (the default): can change things.",
 	prompt: "All the subagent sees: the goal, relevant context, constraints, and what to report.",
 	description: "3-5 words, for display.",
 	model: 'Model as "provider/id" with optional ":thinking". Defaults to the current model.',
@@ -59,7 +57,7 @@ export const INTERRUPTED = "(Stopped when the parent session ended. subagent_mes
  * the JSONL would flood its context. A failed run keeps its context, so the model can ask it what it has.
  */
 export function formatReport(r: Report): string {
-	const head = `${r.id} (${r.type}: ${r.description}) ${r.status}`;
+	const head = `${r.id} (${r.description}) ${r.status}`;
 	const text = r.result !== undefined ? `${head}\n\n${r.result}` : head;
 	return r.status === "failed" ? `${text}\n\nsubagent_message resumes it.` : text;
 }
@@ -83,21 +81,9 @@ export function truncationNote(shown: number, total: number, file: string | unde
 /** A report reduced to where to read it, for the ones a reopened session missed, which could be many. */
 export const briefReport = (file: string, lines: number) => `Report: ${file} (${lines} line${lines === 1 ? "" : "s"})`;
 
-// Subagents' role prompts, appended to their system prompt.
-
-const base = `You are a subagent. Your first message is a task from another agent.
+/** Appended to every subagent's system prompt. */
+export const ROLE_PROMPT = `You are a subagent. Your first message is a task from another agent.
 
 Complete the task. Then, respond with a concise report covering what was done and any key findings and evidence. Others may be working in this directory; don't undo changes you didn't make.
 
 You can't ask questions mid-task. If you need input and a reasonable guess exists: make it, note the assumption, keep working. When truly stuck, stop and report what's needed.`;
-
-const explore = `${base}
-
-Don't change the project (its files or git state) or publish or send anything. Running code and checks, and writing temporary files outside the project, is fine.`;
-
-export const SUBAGENT_TYPES = {
-	"general-purpose": base,
-	explore,
-} as const;
-
-export type SubagentType = keyof typeof SUBAGENT_TYPES;

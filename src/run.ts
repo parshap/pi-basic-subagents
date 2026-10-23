@@ -8,7 +8,6 @@ export type Status = (typeof STATUSES)[number];
 /** One subagent, as every shape in docs/ux.md shows it. `state` is what a running one is doing. */
 export interface RunView {
 	id: string;
-	type: string;
 	description: string;
 	status: Status;
 	state?: string;
@@ -23,7 +22,6 @@ export interface RunRecord {
 	id: string;
 	/** The child's pi session id. */
 	sessionId: string;
-	type: string;
 	description: string;
 	cwd: string;
 	sessionDir: string;
@@ -121,7 +119,6 @@ export class Run {
 				: this.elapsedMs;
 		return {
 			id: this.id,
-			type: this.opts.type,
 			description: this.opts.description,
 			status: this.status,
 			...(this.error !== undefined && { error: this.error }),

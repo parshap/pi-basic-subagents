@@ -7,21 +7,21 @@ What pi-basic-subagents does: the behavior contract. How it's drawn is in [ux.md
 The design principles are in the [README](../README.md#design). Beyond those:
 
 - The model's tools never block, so it stays free to talk to the user; reports wake it. Scripts call the same tools, and wait only through `subagent_start_and_wait`, as Claude Code's workflow scripts use `agent()`. Why: [research memo](research/2026-10-20-subagent-waiting.md).
-- The two types differ only in their role prompt; specialization comes from skills.
-- Not included: chains or workflow definitions (codemode scripts cover them), custom agent files, per-type tool restrictions, worktree isolation, or a channel for a subagent to ask its parent questions.
+- Subagents have no types: each gets the same role prompt, and specialization comes from the parent's prompt and skills. Claude Code's types limit tools; here a type could only be an instruction, which the parent's prompt already carries.
+- Not included: chains or workflow definitions (codemode scripts cover them), custom agent files, per-subagent tool restrictions, worktree isolation, or a channel for a subagent to ask its parent questions.
 
 ## 2. Tools
 
 | Tool | For | Parameters | Returns |
 |---|---|---|---|
-| `subagent_start` | the model and scripts | `subagent_type?` (`explore` \| `general-purpose`, the default), `prompt`, `description`, `model?` | as soon as the child is running: `{ id }` |
+| `subagent_start` | the model and scripts | `prompt`, `description`, `model?` | as soon as the child is running: `{ id }` |
 | `subagent_message` | the model and scripts | `id`, `message` | once the child accepts it, saying whether it resumed it: `{ id, resumed }` |
 | `subagent_stop` | the model and scripts | `id` | its status: stopped (adding that `subagent_message` resumes it), or how it had already finished (adding that its report will wake the parent, if it hasn't yet): `{ id, status }` |
-| `subagent_start_and_wait` | scripts | as `subagent_start` | once it finishes: the report, `{ id, type, description, status, result?, session_path? }`; a failed run's `result` is its error |
+| `subagent_start_and_wait` | scripts | as `subagent_start` | once it finishes: the report, `{ id, description, status, result?, session_path? }`; a failed run's `result` is its error |
 
 Scripts get the structured results shown; the model reads them as text. In pi's terms, the model's tools are `direct` and `subagent_start_and_wait` is `codemode`, so the model can't call it and block. As in Claude Code's workflow scripts, a script waits only on subagents it starts: waiting on a resumed or running one would be a wait tool again, one line away. With codemode's `only` mode, the model reaches every tool through scripts.
 
-- **Types.** Both types get a role prompt: complete the task and end with a concise report of what was done and the findings and evidence, don't undo changes it didn't make (others may share the directory), and make a reasonable guess rather than ask, stopping only when truly stuck. `explore` adds not changing the project or publishing or sending anything. That rule is advisory: nothing enforces it.
+- **Role prompt.** Every subagent is told to complete the task and end with a concise report of what was done and the findings and evidence, not to undo changes it didn't make (others may share the directory), and to make a reasonable guess rather than ask, stopping only when truly stuck. Constraints such as not changing anything go in the parent's prompt, and nothing enforces them. Arguments that earlier versions took, such as `subagent_type`, are ignored.
 - **Model.** `model` is `provider/id` with an optional `:thinking` suffix. It defaults to the parent's model and thinking level.
 - **Messages.** `subagent_message` steers a running subagent. A finished or stopped one resumes from its session with full history and reports again on completion. A resume counts toward `maxConcurrent`. If the parent hasn't had the run's report yet, the result says so, since the model may have sent the message to get that report.
 - **Scripts.** `subagent_start_and_wait` waits for the run, like `await agent()` in a Claude Code workflow script, and the report it returns isn't sent again. Like any tool call, a waiting script holds the user's messages until it ends. Cancelling the call (Esc, the script's deadline, or the script ending first) stops the subagent, as aborting a Claude Code workflow does, so its report can't flood the parent later.

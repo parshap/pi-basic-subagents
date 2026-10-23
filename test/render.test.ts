@@ -22,12 +22,12 @@ const theme = { fg: (_: string, t: string) => t, bg: (_: string, t: string) => t
 const ctx = (over: object = {}) => ({ expanded: false, ...over }) as any;
 const draw = (c: { render(w: number): string[] } | undefined, width = 80) => c!.render(width).map((l) => l.trimEnd());
 
-const run = { id: "sa-1a2b", type: "explore", description: "Audit auth", status: "running" as const };
+const run = { id: "sa-1a2b", description: "Audit auth", status: "running" as const };
 
 test("tool headers and previews keep model text on one line, without terminal controls", () => {
 	const args = { description: "Audit\nforged row\x1b[2J", model: "m\x07", prompt: "\x1b[2Jfirst\nsecond" };
 	assert.deepEqual(draw(startRenderers.renderCall(args, theme, ctx())), [
-		"subagent_start general-purpose · Audit forged row · m\\x07",
+		"subagent_start Audit forged row · m\\x07",
 		"first",
 		"second",
 	]);
@@ -38,24 +38,22 @@ test("a Run line keeps text from the model or child on one line, without termina
 		{ ...run, description: "Two\nlines \x1b[31mred", model: "x/m\x07", contextTokens: 3_456_789 },
 		theme,
 	);
-	assert.equal(line, "● sa-1a2b explore · Two lines red · running · m\\x07 · 3.5M ctx");
+	assert.equal(line, "● sa-1a2b Two lines red · running · m\\x07 · 3.5M ctx");
 });
 
 test("a Run line shows a running subagent's activity, and a finished one's status", () => {
-	assert.equal(runLine({ ...run, state: "bash · 12s" }, theme), "● sa-1a2b explore · Audit auth · bash · 12s");
-	assert.equal(runLine({ ...run, status: "failed" }, theme), "✗ sa-1a2b explore · Audit auth · failed");
-	assert.equal(runLine({ ...run, type: "", state: "bash · 12s" }, theme), "● sa-1a2b Audit auth · bash · 12s");
+	assert.equal(runLine({ ...run, state: "bash · 12s" }, theme), "● sa-1a2b Audit auth · bash · 12s");
+	assert.equal(runLine({ ...run, status: "failed" }, theme), "✗ sa-1a2b Audit auth · failed");
 });
 
 test("a subagent_start block shows its arguments and a prompt preview, and the full prompt expanded", () => {
 	const args = {
-		subagent_type: "explore",
 		description: "Audit auth",
 		model: "openai/gpt-6-luna:low",
 		prompt: "Line one\nLine two\nLine three",
 	};
 	assert.deepEqual(draw(startRenderers.renderCall(args, theme, ctx())), [
-		"subagent_start explore · Audit auth · openai/gpt-6-luna:low",
+		"subagent_start Audit auth · openai/gpt-6-luna:low",
 		"Line one",
 		"Line two",
 	]);
@@ -67,11 +65,6 @@ test("a subagent_start block shows its arguments and a prompt preview, and the f
 		draw(startRenderers.renderCall(long, theme, ctx({ expanded: true }))).some((l) => l.includes("gpt-6-luna")),
 	);
 	assert.ok(!draw(startRenderers.renderCall(long, theme, ctx())).some((l) => l.includes("gpt-6-luna")));
-	const { subagent_type: _, ...untyped } = args;
-	assert.equal(
-		draw(startRenderers.renderCall(untyped, theme, ctx()))[0],
-		"subagent_start general-purpose · Audit auth · openai/gpt-6-luna:low",
-	);
 });
 
 test("start results only acknowledge the id", () => {
@@ -110,7 +103,7 @@ test("a cut line ends in a muted ellipsis, not the default color", () => {
 test("a Report block previews each result until expanded", () => {
 	const reports = [{ ...run, status: "completed" as const, result: "Done.\nMore details." }];
 	const collapsed = draw(renderReportMessage({ details: { reports } }, { expanded: false, outputPad: 1 }, theme));
-	assert.ok(collapsed.some((l) => l.includes("✓ sa-1a2b explore · Audit auth · completed")));
+	assert.ok(collapsed.some((l) => l.includes("✓ sa-1a2b Audit auth · completed")));
 	assert.ok(collapsed.some((l) => l.includes("to expand)")));
 	assert.ok(collapsed.some((l) => l.includes("Done.")));
 	assert.equal(collapsed.filter((l) => l.includes("to expand)")).length, 1);
@@ -203,12 +196,9 @@ test("the widget and finished summaries share session metrics", () => {
 			);
 		}
 		const widget = { status, view: () => view, currentTool: { name: "bash", args: {} } } as any;
-		assert.equal(widgetLine(widget, 200, theme), runLine({ ...view, type: "" }, theme));
+		assert.equal(widgetLine(widget, 200, theme), runLine(view, theme));
 	}
-	assert.equal(
-		runLine({ ...run, state: "thinking", elapsedMs: 0 }, theme),
-		"● sa-1a2b explore · Audit auth · thinking · 0s",
-	);
+	assert.equal(runLine({ ...run, state: "thinking", elapsedMs: 0 }, theme), "● sa-1a2b Audit auth · thinking · 0s");
 });
 
 test("expanded stop results and reports show full model and a transcript link", () => {
@@ -237,7 +227,7 @@ test("expanded stop results and reports show full model and a transcript link", 
 test("old snapshots omit unavailable metrics, and results without details keep their text", () => {
 	const old = { ...run, status: "completed" as const };
 	const result = { content: [], details: { run: old } };
-	const expected = ["✓ sa-1a2b explore · Audit auth · completed"];
+	const expected = ["✓ sa-1a2b Audit auth · completed"];
 	for (const renderer of [stopRenderers]) {
 		assert.deepEqual(draw(renderer.renderResult(result, {}, theme, ctx({ expanded: true }))), expected);
 		assert.deepEqual(draw(renderer.renderResult({ content: [{ type: "text", text: "Old result." }] }, {}, theme)), [
@@ -349,7 +339,7 @@ test("failure summaries use the error, sanitize terminal controls, and keep the 
 	const view = { ...run, status: "failed" as const, error };
 	const colored = { ...theme, fg: (c: string, t: string) => `[${c}]${t}[/${c}]` };
 	assert.ok(runLine(view, colored).includes("[error]failed: rate limited[/error]"));
-	assert.equal(runLine(view, theme), "✗ sa-1a2b explore · Audit auth · failed: rate limited");
+	assert.equal(runLine(view, theme), "✗ sa-1a2b Audit auth · failed: rate limited");
 	assert.equal(widgetLine({ view: () => view } as any, 200, theme), "✗ sa-1a2b Audit auth · failed: rate limited");
 	assert.ok(!runLine({ ...run, error, status: "completed" }, theme).includes("rate limited"));
 	const surfaces = [

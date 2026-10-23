@@ -19,10 +19,9 @@ import {
 	formatReport,
 	INTERRUPTED,
 	notification,
+	ROLE_PROMPT,
 	results,
 	STOPPED,
-	SUBAGENT_TYPES,
-	type SubagentType,
 	truncationNote,
 	wakePrompt,
 } from "./prompts.ts";
@@ -35,21 +34,17 @@ const ENTRY = "basic-subagent";
 /** What a script's subagent_start_and_wait resolves to: the report's content, no metrics. */
 const reportSchema = Type.Object({
 	id: Type.String(),
-	type: Type.String(),
 	description: Type.String(),
 	status: StringEnum(STATUSES),
 	result: Type.Optional(Type.String()),
 	session_path: Type.Optional(Type.String()),
 });
 const forScript = (r: Report): Static<typeof reportSchema> => {
-	const { id, type, description, status, session_path } = r;
-	return { id, type, description, status, result: r.result, session_path };
+	const { id, description, status, session_path } = r;
+	return { id, description, status, result: r.result, session_path };
 };
 
 const startParams = Type.Object({
-	subagent_type: Type.Optional(
-		StringEnum(Object.keys(SUBAGENT_TYPES) as SubagentType[], { description: descriptions.subagentType }),
-	),
 	prompt: Type.String({ description: descriptions.prompt }),
 	description: Type.String({ description: descriptions.description }),
 	model: Type.Optional(Type.String({ description: descriptions.model })),
@@ -187,7 +182,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			...(record.model ? ["--model", record.model] : []),
 			trusted ? "--approve" : "--no-approve",
 			"--append-system-prompt",
-			SUBAGENT_TYPES[record.type as SubagentType],
+			ROLE_PROMPT,
 		];
 	}
 
@@ -346,7 +341,6 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		const record: RunRecord = {
 			id,
 			sessionId: randomUUID(),
-			type: params.subagent_type ?? "general-purpose",
 			description: params.description,
 			// The parent's directory: elsewhere, the parent project's settings and trust wouldn't apply.
 			cwd: ctx.cwd,
