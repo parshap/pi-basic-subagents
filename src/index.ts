@@ -22,7 +22,7 @@ const INTERRUPTED = "(Stopped when the parent session ended. Resume it with suba
 const STOPPED = "(Stopped. Resume it with subagent_message.)";
 const WAKE_TEXT = "Subagent reports arrived above. Continue the task they belong to, or report to the user.";
 
-/** What a script's subagent_run or subagent_continue resolves to: the report's content, no metrics. */
+/** What a script's subagent_start_and_wait resolves to: the report's content, no metrics. */
 const reportSchema = Type.Object({
 	id: Type.String(),
 	type: Type.String(),
@@ -403,28 +403,6 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		return { run, how };
 	}
 
-	/** Resume a finished or stopped subagent for a script; cancelling, even during startup, stops it again. */
-	async function resumeRun(id: string, message: string, signal: AbortSignal | undefined) {
-		const run = getRun(id);
-		// A script can't steer what it's waiting for, so steering stays with the model's subagent_message.
-		if (run.status === "running")
-			throw new Error(`${id} is running; its report will wake you. subagent_message steers it.`);
-		checkCapacity();
-		pi.appendEntry(ENTRY, { id, status: "running" });
-		const resuming = run.prompt(message);
-		const done = run.done;
-		try {
-			await untilAborted(resuming, signal);
-			if (run.status === "failed") throw new Error(run.result);
-		} catch (err) {
-			await run.stop();
-			retractFailure(run);
-			throw signal?.aborted ? new Error(`Cancelled; ${id} stopped. subagent_message resumes it.`) : err;
-		}
-		widget.refresh();
-		return { run, done };
-	}
-
 	// The model's tools return at once, so it never blocks, and scripts can call them too; only scripts get tools
 	// that wait, as Claude Code has Agent for the model and agent() for workflow scripts.
 	function registerTools() {
@@ -448,8 +426,8 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		});
 
 		pi.registerTool({
-			name: "subagent_run",
-			label: "Subagent run",
+			name: "subagent_start_and_wait",
+			label: "Subagent start and wait",
 			description:
 				"Like subagent_start, but resolves with the subagent's report once it finishes. Cancelling the call, as when the script ends, stops the subagent. The user can't talk to you until the script ends, so use it only when the script needs the report; otherwise use subagent_start.",
 			exposure: "codemode",
@@ -487,25 +465,6 @@ export default function basicSubagents(pi: ExtensionAPI) {
 				};
 			},
 			...messageRenderers,
-		});
-
-		pi.registerTool({
-			name: "subagent_continue",
-			label: "Subagent continue",
-			description:
-				"Resume a finished or stopped subagent with a message, and resolve with its next report. Cancelling the call stops it.",
-			exposure: "codemode",
-			parameters: messageParams,
-			outputSchema: reportSchema,
-			async execute(_toolCallId, params, signal) {
-				const { run, done } = await resumeRun(params.id, params.message, signal);
-				const r = await nextReport(run, done, signal);
-				return {
-					content: [{ type: "text", text: formatReport(r) }],
-					structuredContent: forScript(r),
-					details: { run: run.view() },
-				};
-			},
 		});
 
 		pi.registerTool({

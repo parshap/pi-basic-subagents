@@ -4,7 +4,7 @@
 
 ## Situation
 
-A script waits for subagents by awaiting `subagent_run` ([spec §2](../spec.md#2-tools)), so the natural fan-out is `await Promise.all(items.map((item) => tools.subagent_run({ ... })))`. Starting beyond `maxConcurrent` fails at once ([spec §6](../spec.md#6-configuration)), as `checkCapacity()` in `src/index.ts` does for every caller.
+A script waits for subagents by awaiting `subagent_start_and_wait` ([spec §2](../spec.md#2-tools)), so the natural fan-out is `await Promise.all(items.map((item) => tools.subagent_start_and_wait({ ... })))`. Starting beyond `maxConcurrent` fails at once ([spec §6](../spec.md#6-configuration)), as `checkCapacity()` in `src/index.ts` does for every caller.
 
 ## What is wrong
 

@@ -70,7 +70,7 @@ The most used pi subagent packages, and the example that ships with pi, as of Oc
 | Gets your extensions, MCP, skills, AGENTS.md | yes | depends on agent and mode | yes; AGENTS.md only in `general-purpose` | your conversation and tools; no skills or AGENTS.md | yes |
 | Setup | none | none (7 built-in agents) | none (3 built-in agents) | none (6 built-in agents) | agent files and symlinks |
 | Custom agents, per-agent tools and model | no | yes | yes | yes | yes |
-| Model-facing tools | 3, plus 2 for codemode scripts | 1 main, plus helpers | 3 | 8 | 1 |
+| Model-facing tools | 3, plus 1 that waits, for codemode scripts | 1 main, plus helpers | 3 | 8 | 1 |
 | Background runs, reports wake your agent | yes | yes | yes | optional | no (blocks) |
 | Steer / stop / resume | yes / yes / yes | yes / yes / except stopped | yes / UI only / up to 10 min after it finishes | yes / yes / yes | no / no / no |
 | Subagent can ask your agent questions | no (stops and reports) | yes | no | no | no |
@@ -82,7 +82,7 @@ The most used pi subagent packages, and the example that ships with pi, as of Oc
 
 **Why is there no tool for my agent to wait for subagents?**
 
-So you can keep talking to your agent. Given a wait tool, models tend to call it right after starting subagents, shutting you out until they finish; Claude Code removed its wait tool for the same reason ([research memo](docs/research/2026-10-20-subagent-waiting.md)). Waiting happens only in codemode scripts, which get `subagent_run` and `subagent_continue`: like `await agent()` in Claude Code's workflows, they return the subagent's report, so a script can fan out with `Promise.all` and return only what your agent needs. Stopping a script (Esc) stops the subagents it's waiting on, and calls past `maxConcurrent` fail, so batch big fan-outs.
+So you can keep talking to your agent. Given a wait tool, models tend to call it right after starting subagents, shutting you out until they finish; Claude Code removed its wait tool for the same reason ([research memo](docs/research/2026-10-20-subagent-waiting.md)). Waiting happens only in codemode scripts, which get `subagent_start_and_wait`: like `await agent()` in Claude Code's workflows, it returns the subagent's report, so a script can fan out with `Promise.all` and return only what your agent needs. Stopping a script (Esc) stops the subagents it's waiting on, and calls past `maxConcurrent` fail, so batch big fan-outs.
 
 **Why one-way communication? What if a subagent gets stuck?**
 

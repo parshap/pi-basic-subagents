@@ -74,18 +74,12 @@ const briefFile = (notification: string, id: string) =>
 	notification.match(new RegExp(`${id} \\(explore: d\\) \\w+\\n\\nReport: (\\S+\\.md) \\(\\d+ lines?\\)`))![1];
 
 test("main session gets the tools", () => {
-	assert.deepEqual(load(0).tools, [
-		"subagent_start",
-		"subagent_run",
-		"subagent_message",
-		"subagent_continue",
-		"subagent_stop",
-	]);
+	assert.deepEqual(load(0).tools, ["subagent_start", "subagent_start_and_wait", "subagent_message", "subagent_stop"]);
 });
 
 test("children at maxDepth get no tools", () => {
 	assert.deepEqual(load(1).tools, []);
-	assert.equal(load(1, { basicSubagents: { maxDepth: 2 } }).tools.length, 5);
+	assert.equal(load(1, { basicSubagents: { maxDepth: 2 } }).tools.length, 4);
 	assert.equal(load(2, { basicSubagents: { maxDepth: 2 } }).tools.length, 0);
 });
 
@@ -120,9 +114,8 @@ test("scripts call the model's tools and get structured results; only waiting to
 	const exposures = Object.fromEntries([...definitions].map(([name, t]) => [name, t.exposure ?? "direct"]));
 	assert.deepEqual(exposures, {
 		subagent_start: "direct",
-		subagent_run: "codemode",
+		subagent_start_and_wait: "codemode",
 		subagent_message: "direct",
-		subagent_continue: "codemode",
 		subagent_stop: "direct",
 	});
 	const { id } = await script("subagent_start", { prompt: "slow", description: "d" });
@@ -133,9 +126,9 @@ test("scripts call the model's tools and get structured results; only waiting to
 	await script("subagent_stop", { id });
 });
 
-test("a script's start resolves with the report, which isn't also sent as a message", async () => {
+test("a script's start_and_wait resolves with the report, which isn't also sent as a message", async () => {
 	const { script, handlers, messages, setIdle } = load(0);
-	const r = await script("subagent_run", { subagent_type: "explore", prompt: "hello", description: "d" });
+	const r = await script("subagent_start_and_wait", { subagent_type: "explore", prompt: "hello", description: "d" });
 	assert.equal(r.status, "completed");
 	assert.equal(r.result, "hello");
 	setIdle(true);
@@ -144,60 +137,14 @@ test("a script's start resolves with the report, which isn't also sent as a mess
 	assert.deepEqual(messages, []);
 });
 
-test("a script's continue resumes a finished subagent and resolves with its next report, but won't steer", async () => {
-	const { call, script } = load(0);
-	const { id } = await script("subagent_run", { subagent_type: "explore", prompt: "first", description: "d" });
-	assert.equal((await script("subagent_continue", { id, message: "second" })).result, "second");
-	await call("subagent_message", { id, message: "slow" });
-	await assert.rejects(script("subagent_continue", { id, message: "more" }), new RegExp(`${id} is running`));
-	await call("subagent_stop", { id });
-});
-
-test("cancelling a script's continue stops the subagent, even while it starts up", async () => {
-	const { script, call, handlers, messages, setIdle } = load(0);
-	const { id } = await script("subagent_run", { subagent_type: "explore", prompt: "first", description: "d" });
-	const stop = new AbortController();
-	const waiting = script("subagent_continue", { id, message: "second" }, stop.signal);
-	setTimeout(() => stop.abort(), 10); // While its child starts.
-	await assert.rejects(waiting, new RegExp(`^Error: Cancelled; ${id} stopped`));
-	assert.equal((await call("subagent_stop", { id })).status, "stopped");
-	setIdle(true);
-	handlers.agent_settled({ aborted: false });
-	await new Promise((resolve) => setTimeout(resolve, 50));
-	assert.deepEqual(messages, []);
-});
-
-test("a script awaiting a resume gets that launch's report, leaving an earlier one queued", async () => {
-	const { call, script, handlers, messages, setIdle } = load(0);
-	const start = { subagent_type: "explore", description: "d" };
-	const { id } = await call("subagent_start", { ...start, prompt: "first" });
-	await new Promise((resolve) => setTimeout(resolve, 300)); // Queued: the parent is busy.
-	const resumed = script("subagent_continue", { id, message: "slow" });
-	await new Promise((resolve) => setTimeout(resolve, 100));
-	await call("subagent_stop", { id });
-	assert.equal((await resumed).status, "stopped");
-	setIdle(true);
-	handlers.agent_settled({ aborted: false });
-	assert.match(messages[0], /\nfirst\n/);
-});
-
-test("a reopened session delivers a queued report even after a later one reached a script", async () => {
-	const entries: any[] = [];
-	const first = load(0, {}, entries);
-	const { id } = await first.call("subagent_start", { subagent_type: "explore", prompt: "first", description: "d" });
-	await new Promise((resolve) => setTimeout(resolve, 300)); // Queued: the parent is busy.
-	assert.equal((await first.script("subagent_continue", { id, message: "second" })).result, "second");
-	first.handlers.agent_settled({ aborted: false }); // The turn with the script's result ends.
-	await first.handlers.session_shutdown();
-	const [notification] = load(0, {}, entries).messages;
-	assert.equal(notification.match(/Report: /g)?.length, 1);
-	assert.equal(fs.readFileSync(briefFile(notification, id), "utf8"), "first");
-});
-
 test("a reopened session gets the reports a script took when pi quit before the script's turn ended", async () => {
 	const entries: any[] = [];
 	const first = load(0, {}, entries);
-	const { id } = await first.script("subagent_run", { subagent_type: "explore", prompt: "done", description: "d" });
+	const { id } = await first.script("subagent_start_and_wait", {
+		subagent_type: "explore",
+		prompt: "done",
+		description: "d",
+	});
 	await first.handlers.session_shutdown();
 	const [notification] = load(0, {}, entries).messages;
 	assert.equal(fs.readFileSync(briefFile(notification, id), "utf8"), "done");
@@ -207,7 +154,11 @@ test("cancelling a script's call stops the subagent it started, so no report arr
 	const { script, handlers, messages, setIdle } = load(0);
 	process.env.FAKE_RUN_MS = "600";
 	const stop = new AbortController();
-	const waiting = script("subagent_run", { subagent_type: "explore", prompt: "hello", description: "d" }, stop.signal);
+	const waiting = script(
+		"subagent_start_and_wait",
+		{ subagent_type: "explore", prompt: "hello", description: "d" },
+		stop.signal,
+	);
 	delete process.env.FAKE_RUN_MS;
 	setTimeout(() => stop.abort(), 400); // Once it's running.
 	await assert.rejects(waiting, /^Error: Cancelled; sa-\w+ stopped\. subagent_message resumes it\.$/);
@@ -268,7 +219,7 @@ test("a finished run stays in the widget until a turn with its report ends; a st
 
 	// Returned to a script in a busy parent's turn.
 	setIdle(false);
-	const waited = await script("subagent_run", { ...start, prompt: "hi" });
+	const waited = await script("subagent_start_and_wait", { ...start, prompt: "hi" });
 	assert.match(drawWidget()![0], new RegExp(`^✓ ${waited.id} d · completed · \\d+(?:m\\d+)?s$`));
 	handlers.agent_settled({ aborted: false });
 	assert.equal(drawWidget(), undefined);
@@ -297,8 +248,11 @@ test("a reopened session reports runs it never heard from, once, without waking 
 		second.messages[0],
 		new RegExp(`${cut} \\(explore: d\\) stopped\\n\\n\\(Stopped when the parent session ended`),
 	);
-	assert.equal((await second.script("subagent_continue", { id: cut, message: "go on" })).result, "go on");
-	second.handlers.agent_settled({ aborted: false });
+	await second.call("subagent_message", { id: cut, message: "go on" });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	second.setIdle(true);
+	second.handlers.agent_settled({ aborted: false }); // Delivers the resumed run's report.
+	assert.match(second.messages[1], /\ngo on\n/);
 	await second.handlers.session_shutdown();
 	assert.deepEqual(load(0, {}, entries).messages, []);
 });
@@ -306,7 +260,7 @@ test("a reopened session reports runs it never heard from, once, without waking 
 test("a fork doesn't take over its original's subagents", async () => {
 	const entries: any[] = [];
 	const first = load(0, {}, entries);
-	const { id } = await first.script("subagent_run", {
+	const { id } = await first.script("subagent_start_and_wait", {
 		subagent_type: "explore",
 		prompt: "finished",
 		description: "d",
@@ -320,7 +274,7 @@ test("a fork doesn't take over its original's subagents", async () => {
 test("a resumed run cut short by shutdown reopens as stopped", async () => {
 	const entries: any[] = [];
 	const first = load(0, {}, entries);
-	const { id } = await first.script("subagent_run", {
+	const { id } = await first.script("subagent_start_and_wait", {
 		subagent_type: "explore",
 		prompt: "finished",
 		description: "d",
@@ -372,7 +326,11 @@ test("a start that fails leaves no run behind", async () => {
 
 test("a resume that fails to start fails the message, and its report isn't sent again", async () => {
 	const { call, script, handlers, messages, setIdle } = load(0);
-	const { id } = await script("subagent_run", { subagent_type: "explore", prompt: "first", description: "d" });
+	const { id } = await script("subagent_start_and_wait", {
+		subagent_type: "explore",
+		prompt: "first",
+		description: "d",
+	});
 	const fakePi = process.argv[1];
 	process.argv[1] = path.join(tmp, "broken-pi.mjs");
 	fs.writeFileSync(process.argv[1], "process.exit(3);");
@@ -462,7 +420,7 @@ test("context size survives reopening, and a resume replaces it", async () => {
 	process.env.FAKE_USAGE = JSON.stringify({ input: 42, output: 8, cacheRead: 0, cacheWrite: 0, totalTokens: 50 });
 	let id: string;
 	try {
-		({ id } = await app.script("subagent_run", {
+		({ id } = await app.script("subagent_start_and_wait", {
 			subagent_type: "explore",
 			prompt: "hello",
 			description: "d",
@@ -481,7 +439,8 @@ test("context size survives reopening, and a resume replaces it", async () => {
 	assert.equal(first.contextTokens, 50);
 	assert.equal(restored.elapsedMs, first.elapsedMs);
 	assert.equal(restored.model, first.model);
-	await reopened.script("subagent_continue", { id, message: "again" });
+	await reopened.call("subagent_message", { id, message: "again" });
+	await new Promise((resolve) => setTimeout(resolve, 300));
 	assert.equal((await reopened.call("subagent_stop", { id })).contextTokens, 70);
 	assert.equal(restored.contextTokens, 50); // Earlier snapshots don't change.
 	await reopened.handlers.session_shutdown();
@@ -493,7 +452,11 @@ test("a run cut short by shutdown keeps its last saved context size", async () =
 	process.env.FAKE_USAGE = JSON.stringify({ input: 42, output: 8, cacheRead: 0, cacheWrite: 0, totalTokens: 50 });
 	let id: string;
 	try {
-		({ id } = await app.script("subagent_run", { subagent_type: "explore", prompt: "hello", description: "d" }));
+		({ id } = await app.script("subagent_start_and_wait", {
+			subagent_type: "explore",
+			prompt: "hello",
+			description: "d",
+		}));
 	} finally {
 		delete process.env.FAKE_USAGE;
 	}
@@ -510,7 +473,7 @@ test("a failed run reports only its reason, and that it can be resumed", async (
 	let failed: any;
 	try {
 		failed = await app.execute(
-			"subagent_run",
+			"subagent_start_and_wait",
 			{ subagent_type: "explore", prompt: "Partial answer", description: "d" },
 			"codemode/1",
 		);
