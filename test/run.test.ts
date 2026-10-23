@@ -15,7 +15,6 @@ function fakeRun(env: Record<string, string> = {}, sessionDir = tmp) {
 	const run = new Run({
 		id: "sa-test",
 		sessionId: randomUUID(),
-		type: "explore",
 		description: "test",
 		cwd: tmp,
 		sessionDir,
@@ -51,7 +50,7 @@ test("a run completes with its final message", async () => {
 
 test("metrics are unavailable before launch and old restored runs keep them omitted", () => {
 	const { run } = fakeRun();
-	const base = { id: run.id, type: "explore", description: "test", status: "running" };
+	const base = { id: run.id, description: "test", status: "running" };
 	assert.deepEqual(run.view(), base);
 	run.status = "completed";
 	assert.deepEqual(run.view(), { ...base, status: "completed" });

@@ -29,7 +29,7 @@ const STATUS: Record<Status, { glyph: string; color: "accent" | "success" | "err
 	stopped: { glyph: "■", color: "warning" },
 };
 
-/** The Run line: `<glyph> <id> <type> · <description> · <state>`. */
+/** The Run line: `<glyph> <id> <description> · <state>`. */
 export function runLine(v: RunView, theme: Theme): string {
 	const { glyph, color } = STATUS[v.status];
 	const sep = theme.fg("muted", " · ");
@@ -38,15 +38,13 @@ export function runLine(v: RunView, theme: Theme): string {
 		v.status === "running" && v.state
 			? theme.fg("muted", oneLine(v.state))
 			: theme.fg(color, reason ? `failed: ${reason}` : v.status);
-	// Without the type (the widget), the bold id sets off the description well enough.
-	const type = v.type ? ` ${theme.fg("muted", v.type)}${sep}` : " ";
 	const metadata = [
 		...(v.model ? [oneLine(shortModel(v.model))] : []),
 		...(v.contextTokens ? [`${k(v.contextTokens)} ctx`] : []),
 		...(v.elapsedMs !== undefined ? [elapsed(v.elapsedMs)] : []),
 	];
 	return [
-		`${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))}${type}${theme.fg("text", oneLine(v.description))}${sep}${state}`,
+		`${theme.fg(color, glyph)} ${theme.fg("text", theme.bold(v.id))} ${theme.fg("text", oneLine(v.description))}${sep}${state}`,
 		...metadata.map((text) => theme.fg("muted", text)),
 	].join(sep);
 }
@@ -129,14 +127,11 @@ function textResult(result: { content: { type: string; text?: string }[] }, them
 }
 
 type Result<D> = { content: { type: string; text?: string }[]; details?: D };
-type StartArgs = { subagent_type?: string; description?: string; model?: string; prompt?: string };
+type StartArgs = { description?: string; model?: string; prompt?: string };
 type Ctx = { expanded: boolean };
 
 function startHeading(args: StartArgs, theme: Theme): string {
-	const head = [
-		`${title("subagent_start", theme)} ${theme.fg("muted", oneLine(args.subagent_type ?? "general-purpose"))}`,
-		theme.fg("text", oneLine(args.description ?? "")),
-	];
+	const head = [`${title("subagent_start", theme)} ${theme.fg("text", oneLine(args.description ?? ""))}`];
 	if (args.model) head.push(theme.fg("muted", oneLine(args.model)));
 	return head.join(theme.fg("muted", " · "));
 }
@@ -286,7 +281,7 @@ export function widgetLine(r: Run, width: number, theme: Theme): string {
 	const view = r.view();
 	const tool = view.status === "running" ? r.currentTool : undefined;
 	const line = (args?: string) =>
-		runLine({ ...view, type: "", state: tool ? `${tool.name}${args ? ` ${args}` : ""}` : "thinking" }, theme);
+		runLine({ ...view, state: tool ? `${tool.name}${args ? ` ${args}` : ""}` : "thinking" }, theme);
 	const base = line();
 	const free = width - visibleWidth(base) - 1; // 1 for the space before the arguments.
 	const args = free >= 3 ? argsText(tool?.args, free + 1) : "";

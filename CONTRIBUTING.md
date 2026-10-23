@@ -17,8 +17,8 @@ Behavior is specified in [docs/spec.md](docs/spec.md) and looks in [docs/ux.md](
 - The extension (`src/index.ts`) snapshots each report into an outbox when its run settles, since a resume would replace the result; a stopped run queues none, since whoever stopped it already knows. `subagent_start_and_wait` takes its run's report from it, finding its launch's by its `done` promise; otherwise reports are flushed with the wake once the parent is idle. A finished run stays in the widget until an `agent_settled` finds its report gone from the outbox, so the turn that read it has ended; changing how reports are delivered changes how long rows stay.
 - Runs are recorded in the parent session as `basic-subagent` custom entries, a record at start then patches with status changes, and merged by id on `session_start` to restore them. A settle patch also records the report's file under a key that a later patch marks delivered, so a reopened session sends exactly the reports the parent missed. A report a tool call took is marked once the turn ends, when the call's result is in the session. Patches also carry the run's metrics for the UI.
 - Renderers draw from tool `details` and arguments, never from the text the model reads, so that text stands on its own in modes that render nothing. The widget reads current runs; tool and report renderers draw only their saved results.
-- Everything a model reads (tool descriptions, results, errors, reports, the wake prompt, and the subagents' role prompts) is in `src/prompts.ts`, so it can be reviewed as a whole; run failure reasons stay in `src/run.ts`.
-- Launch flags are computed per launch in `launchArgs()`; per-type tool limits would go there.
+- Everything a model reads (tool descriptions, results, errors, reports, the wake prompt, and the subagents' role prompt) is in `src/prompts.ts`, so it can be reviewed as a whole; run failure reasons stay in `src/run.ts`.
+- Launch flags are computed per launch in `launchArgs()`.
 
 ## Tests
 

@@ -6,7 +6,7 @@ What pi-basic-subagents draws, and the rules every surface follows: its design l
 
 - **Pi owns the frame.** We never choose a background. Tool blocks use pi's tool shell, and reports use pi's custom-message background, so each item looks like every other item of its kind.
 - **Color means status.** Only a subagent's status is colored. Everything else is plain text, muted, or dim.
-- **Shared Run line.** Live status and finished summaries use the same Run line; the widget leaves out the type and counts what doesn't fit.
+- **Shared Run line.** Live status and finished summaries use the same Run line; the widget counts what doesn't fit.
 - **Collapsed is a summary, expanded is everything.** Collapsed views are single lines cut to the width; expanded views show the full input or output. Expansion follows pi's global toggle (Ctrl+O), plus a click where pi provides one.
 - **Content is for the model, details are for rendering.** Renderers draw from structured `details` and tool arguments, never by parsing the text the model reads. That text must stand on its own in print, JSON, and RPC modes, where nothing is rendered.
 - **Theme tokens only.** No literal colors, and no text left in the terminal's default color, so light and dark themes work.
@@ -18,13 +18,13 @@ What pi-basic-subagents draws, and the rules every surface follows: its design l
 The atom: one subagent on one line.
 
 ```
-● sa-1a2b explore · Audit auth flow · bash · 1m12s
-✓ sa-1a2b explore · Audit auth flow · completed
+● sa-1a2b Audit auth flow · bash · 1m12s
+✓ sa-1a2b Audit auth flow · completed
 ```
 
-`<glyph> <id> <type> · <description> · <state>`
+`<glyph> <id> <description> · <state>`
 
-- **id** bold, **type** muted, **description** text.
+- **id** bold, **description** text.
 - **state** is the current tool or `thinking` while running, and the status word once done. Failed rows add the error's first nonempty line after `failed:`. The model, the child's current context size (`132.3k ctx`), and elapsed time follow, with time last; missing metrics are omitted.
 - **Expanded details** show the full model name. Duration covers the latest launch and freezes when it finishes.
 - Cut to the width with a `muted` `…`; never wraps.
@@ -40,7 +40,6 @@ Live Run lines for running and recently finished subagents, above the editor, in
 
 - **Finished rows stay until the parent ends a turn that has their reports** (the wake, or one whose script got them), so a batch shows its progress and clears once the parent has dealt with it. A stopped subagent leaves at once: whoever stopped it already knows.
 - **At most 5 lines.** With more than 5, it shows 4 rows in start order, preferring running subagents over finished ones, then a line counting the rest by status: a `muted` `+N more`, then each status's glyph and `muted` count and name (`+16 more · ● 15 running · ✗ 1 failed`). It stays short, so a failure isn't cut off at usual widths.
-- **No type, and no `·` after the id.** The line is for watching activity; the type is in the `subagent_start` block.
 - **The model's short name** follows the activity/status: omit everything through the last `/`, a leading `claude-`, and a trailing `-latest` or date snapshot (`-YYYYMMDD` or `-YYYY-MM-DD`), keeping the `:thinking` suffix.
 - **The current tool's arguments** follow its name: string arguments on one line, `path` first. They take only the width the rest of the line leaves, so they never push anything off, and they're left out when fewer than 3 columns are free besides the space before them. Control characters show escaped (`\x1b`), so arguments can't drive the terminal. With parallel calls, it's the latest one still running.
 - The tool name is part of the muted state here, not `toolTitle`.
@@ -54,7 +53,7 @@ One per tool call the parent model makes, drawn inside pi's tool shell.
 
 | Tool | Header, collapsed | Header, expanded | Body, collapsed | Body, expanded |
 |---|---|---|---|---|
-| `subagent_start` | type · description · model, then the first 2 lines of the prompt (muted) | all arguments, the prompt as Markdown | `Started <id>.` | same acknowledgment |
+| `subagent_start` | description · model, then the first 2 lines of the prompt (muted) | all arguments, the prompt as Markdown | `Started <id>.` | same acknowledgment |
 | `subagent_message` | id, then the first line of the message (muted) | the full message | `message sent to running subagent` or `subagent resumed with message` | same |
 | `subagent_stop` | id | same | the Run line with its status | Run line, model, transcript link, any failure reason |
 
@@ -107,7 +106,7 @@ The glyph, status word, and short failure reason take the color; metadata stays 
 | Tool names | `toolTitle`, bold |
 | Primary text (ids, descriptions) | `text` |
 | Markdown bodies (prompts, messages, results) | `toolOutput` in tool blocks, `customMessageText` in report blocks, as in pi's own |
-| Secondary metadata (type, model, context size, elapsed, separators) | `muted` |
+| Secondary metadata (model, context size, elapsed, separators) | `muted` |
 | Hints (`(ctrl+o to expand)`, from pi's keybinding) | key `dim`, the rest `muted` |
 
 ## Copy

@@ -28,7 +28,7 @@ function respond(context: TranscriptContext): AssistantMessage {
 		return fauxAssistantMessage(`pong: ${brief}`);
 	}
 	const results = messages.filter((m) => m.role === "toolResult");
-	const start = { subagent_type: "explore", description: "echo" };
+	const start = { description: "echo" };
 	if (results.length === 0) {
 		const code = [
 			`const r = await tools.subagent_start_and_wait(${JSON.stringify({ ...start, prompt: "scripted" })});`,

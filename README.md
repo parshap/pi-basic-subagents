@@ -29,7 +29,7 @@ Ask for it in plain words; your agent calls the tools:
 
 Starting a subagent returns right away, so you can keep talking to your agent. Running subagents show live above the editor with their model, context size, and time. When one finishes, its report lands in your conversation and wakes your agent. Your agent can steer running subagents, or resume finished ones, by sending them messages. With codemode, it can also script many subagents and pass on only what matters.
 
-There are two subagent types: `explore` for research, review, and verification, told not to change the project or publish anything (an instruction, not a security sandbox), and `general-purpose`, the default, for work that changes things. A subagent uses the same model as your agent unless your agent picks another.
+There are no subagent types: your agent's prompt carries any constraints, such as not changing anything. A subagent uses the same model as your agent unless your agent picks another.
 
 To steer subagent usage and model choices, add guidance to your `AGENTS.md`, for example:
 
@@ -88,13 +88,13 @@ So you can keep talking to your agent. Given a wait tool, models tend to call it
 
 A subagent works in the background, where nobody is watching to answer questions, and your agent, busy with its own work, is a poor stand-in. So a subagent makes routine judgment calls itself and states its assumptions in its report. At a decision that would change the outcome, it stops and reports what needs deciding. Your agent, or you through it, answers with a message, which resumes the subagent with its full history.
 
-**Is `explore` read-only?**
+**Can a subagent be read-only?**
 
-No. It's told not to change the project or publish anything, but it has the same tools as any pi session, and read-only work often needs `bash`, which can edit any file. For enforced limits, use a sandbox or a permission system.
+Only by instruction. Your agent can tell it not to change anything, but it has the same tools as any pi session, and read-only work often needs `bash`, which can edit any file. For enforced limits, use a sandbox or a permission system.
 
 **Can two subagents work on the same files?**
 
-They can, and they can collide: subagents work in your project directory, not a copy, so that your project's settings and trust apply to them. Give parallel subagents separate files, or ask for isolation when you delegate: a `general-purpose` subagent can create a git worktree and work there.
+They can, and they can collide: subagents work in your project directory, not a copy, so that your project's settings and trust apply to them. Give parallel subagents separate files, or ask for isolation when you delegate: a subagent can create a git worktree and work there.
 
 **Can I see what a subagent did?**
 
