@@ -10,7 +10,7 @@ Minimal subagents for [pi](https://pi.dev), where each subagent is a regular pi 
 ## Design
 
 - **Just a pi session.** Each subagent runs in your project with your settings, extensions, MCP servers, skills, and `AGENTS.md`, and its transcript is a normal pi session you can open.
-- **Minimal.** No agent definitions, prompts, or tool lists to write: install it and ask your agent to delegate. It exposes three tools for your agent, modeled on Claude and Codex so models already know them. No commands, skills, or system-prompt text. No workflow engine: your agent scripts subagents with [codemode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/codemode.md).
+- **Minimal.** No agent definitions, prompts, or tool lists to write: install it and ask your agent to delegate. It exposes three tools for your agent, modeled on Claude and Codex so models already know them. No commands, skills, or additions to your agent's system prompt; subagents get a few lines telling them how to work and report. No workflow engine: your agent scripts subagents with [codemode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/codemode.md).
 - **Never blocking.** Your agent starts a subagent and can steer or stop it while it works; the subagent reports back when it finishes. Your agent stays free to talk to you.
 
 ## Install
