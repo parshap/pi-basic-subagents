@@ -115,6 +115,24 @@ test("a direct start returns at once, telling the model not to wait", async () =
 	assert.equal(await callText("subagent_stop", { id }), `${id}: stopped. subagent_message resumes it.`);
 });
 
+test("scripts call the model's tools and get structured results; only waiting tools are script-only", async () => {
+	const { definitions, script } = load(0);
+	const exposures = Object.fromEntries([...definitions].map(([name, t]) => [name, t.exposure ?? "direct"]));
+	assert.deepEqual(exposures, {
+		subagent_start: "direct",
+		subagent_run: "codemode",
+		subagent_message: "direct",
+		subagent_continue: "codemode",
+		subagent_stop: "direct",
+	});
+	const { id } = await script("subagent_start", { prompt: "slow", description: "d" });
+	assert.match(id, /^sa-\w+$/);
+	assert.deepEqual(await script("subagent_message", { id, message: "also" }), { id, resumed: false });
+	assert.deepEqual(await script("subagent_stop", { id }), { id, status: "stopped" });
+	assert.deepEqual(await script("subagent_message", { id, message: "slow" }), { id, resumed: true });
+	await script("subagent_stop", { id });
+});
+
 test("a script's start resolves with the report, which isn't also sent as a message", async () => {
 	const { script, handlers, messages, setIdle } = load(0);
 	const r = await script("subagent_run", { subagent_type: "explore", prompt: "hello", description: "d" });
