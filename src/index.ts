@@ -12,15 +12,25 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 import { type Config, currentDepth, inheritedFlags, resolveConfig } from "./config.ts";
-import { SUBAGENT_TYPES, type SubagentType } from "./prompts.ts";
+import {
+	briefReport,
+	descriptions,
+	errors,
+	formatReport,
+	INTERRUPTED,
+	notification,
+	results,
+	STOPPED,
+	SUBAGENT_TYPES,
+	type SubagentType,
+	truncationNote,
+	wakePrompt,
+} from "./prompts.ts";
 import { messageRenderers, type Report, renderReportMessage, startRenderers, stopRenderers, Widget } from "./render.ts";
 import { Run, type RunRecord, type RunView, STATUSES } from "./run.ts";
 
 // Session entries, outside the model's context: a run's record at start, then patches with its status changes.
 const ENTRY = "basic-subagent";
-const INTERRUPTED = "(Stopped when the parent session ended. Resume it with subagent_message.)";
-const STOPPED = "(Stopped. Resume it with subagent_message.)";
-const WAKE_TEXT = "Subagent reports arrived above. Continue the task they belong to, or report to the user.";
 
 /** What a script's subagent_start_and_wait resolves to: the report's content, no metrics. */
 const reportSchema = Type.Object({
@@ -38,13 +48,9 @@ const forScript = (r: Report): Static<typeof reportSchema> => {
 
 const startParams = Type.Object({
 	subagent_type: Type.Optional(StringEnum(Object.keys(SUBAGENT_TYPES) as SubagentType[])),
-	prompt: Type.String({
-		description: "All the subagent sees: the goal, relevant context, constraints, and what to report.",
-	}),
-	description: Type.String({ description: "3-5 words, for display." }),
-	model: Type.Optional(
-		Type.String({ description: 'Model as "provider/id" with optional ":thinking". Defaults to the current model.' }),
-	),
+	prompt: Type.String({ description: descriptions.prompt }),
+	description: Type.String({ description: descriptions.description }),
+	model: Type.Optional(Type.String({ description: descriptions.model })),
 });
 const messageParams = Type.Object({ id: Type.String(), message: Type.String() });
 
@@ -58,8 +64,7 @@ export function report(run: Run, file?: string): Report {
 function truncated(text: string, file: string | undefined): string {
 	const t = truncateHead(text);
 	if (!t.truncated) return t.content;
-	const rest = file ? `in ${file}` : "the last message in the transcript";
-	return `${t.content}\n\n[Result truncated to ${t.outputLines} of ${t.totalLines} lines. The full text is ${rest}.]`;
+	return `${t.content}\n\n${truncationNote(t.outputLines, t.totalLines, file)}`;
 }
 
 /**
@@ -76,27 +81,12 @@ function writeReport(run: Run, key: string): string | undefined {
 	}
 }
 
-/** A report reduced to where to read it, for the ones a reopened session missed, which could be many. */
-function briefLine(file: string, lines: number): string {
-	return `Report: ${file} (${lines} line${lines === 1 ? "" : "s"})`;
-}
-
 /** Where a session's subagents keep their sessions: in a directory named after its file, so /resume doesn't list them. */
 function childSessionDir(sm: ExtensionContext["sessionManager"]): string {
 	const file = sm.getSessionFile();
 	return file
 		? file.replace(/\.jsonl$/, "")
 		: path.join(getAgentDir(), "sessions", "basic-subagents", sm.getSessionId());
-}
-
-/**
- * A report as the model reads it, without the metrics the UI shows. The transcript path is left out too:
- * the JSONL would flood its context. A failed run keeps its context, so the model can ask it what it has.
- */
-function formatReport(r: Report): string {
-	const head = `${r.id} (${r.type}: ${r.description}) ${r.status}`;
-	const text = r.result !== undefined ? `${head}\n\n${r.result}` : head;
-	return r.status === "failed" ? `${text}\n\nsubagent_message resumes it.` : text;
 }
 
 /** `promise`, or a rejection once `signal` aborts (pi waits for a tool's execute() even after Esc). */
@@ -145,9 +135,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 	function takeReports() {
 		const reports = outbox.splice(0);
 		delivered(reports);
-		const text = reports.map(formatReport).join("\n\n---\n\n");
-		const content = `<subagent_notification>\n${text}\n</subagent_notification>`;
-		return { customType: "subagent-report", content, display: true, details: { reports } };
+		return { customType: "subagent-report", content: notification(reports), display: true, details: { reports } };
 	}
 
 	/** Hand every undelivered report to the idle parent and wake it; a busy parent gets them when it settles. */
@@ -159,10 +147,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			if (!wake) return;
 			// A user prompt, not sendMessage's triggerTurn, which skips before_agent_start and with it other
 			// extensions' prompt sections. Steer queues it if another prompt starts the run first.
-			// Said outright: a wake with only some of a batch's reports is when a model reaches for a wait.
-			const others = running().map((r) => r.id);
-			const more = others.length ? ` Still running: ${others.join(", ")}; their reports will wake you too.` : "";
-			pi.sendUserMessage(WAKE_TEXT + more, { deliverAs: "steer" });
+			pi.sendUserMessage(wakePrompt(running().map((r) => r.id)), { deliverAs: "steer" });
 		} catch (err) {
 			session.ui.notify(`pi-basic-subagents: couldn't deliver reports: ${err}`, "error");
 		}
@@ -229,7 +214,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 
 	function checkCapacity() {
 		if (running().length < config.maxConcurrent) return;
-		throw new Error(`${config.maxConcurrent} subagents are already running. Try again after one reports.`);
+		throw new Error(errors.atCapacity(config.maxConcurrent));
 	}
 
 	/**
@@ -241,7 +226,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			await untilAborted(done, signal);
 		} catch {
 			if (run.done === done) await run.stop();
-			throw new Error(`Cancelled; ${run.id} stopped. subagent_message resumes it.`);
+			throw new Error(errors.cancelled(run.id));
 		}
 		const r = reportOf.get(done) ?? report(run);
 		const i = outbox.indexOf(r); // Not there if stopped, which queues no report.
@@ -251,7 +236,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 
 	function getRun(id: string): Run {
 		const run = runs.get(id);
-		if (!run) throw new Error(`Unknown subagent id: ${id}`);
+		if (!run) throw new Error(errors.unknownId(id));
 		return run;
 	}
 
@@ -328,7 +313,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			run.result = status === "running" ? INTERRUPTED : (result ?? "");
 			for (const [key, m] of missed) {
 				if (m.id !== run.id) continue;
-				const result = m.file && briefLine(m.file, m.lines ?? 0);
+				const result = m.file && briefReport(m.file, m.lines ?? 0);
 				// No error: it may be a later launch's, and the file has this one's.
 				const r: Report = { ...run.view(), status: m.status, error: undefined, session_path: run.sessionPath, result };
 				keys.set(r, key);
@@ -409,18 +394,16 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		pi.registerTool({
 			name: "subagent_start",
 			label: "Subagent",
-			description: [
-				"Start a subagent: a fresh pi session with your tools, skills, and project context, but not this conversation.",
-				`It returns at once, and its report wakes you later. At most ${config.maxConcurrent} run at once; more fail.`,
-				"Types: explore is asked not to change the project (research, review, verification); general-purpose (the default) can change things.",
-			].join(" "),
+			description: descriptions.start(config.maxConcurrent),
 			parameters: startParams,
 			outputSchema: Type.Object({ id: Type.String() }),
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const { run } = await startRun(params, signal, ctx);
-				// Right where the model decides what's next; a description alone doesn't stop the reflexive wait.
-				const text = `Started ${run.id}; its report will wake you. Do other work or end your turn.`;
-				return { content: [{ type: "text", text }], structuredContent: { id: run.id }, details: { id: run.id } };
+				return {
+					content: [{ type: "text", text: results.started(run.id) }],
+					structuredContent: { id: run.id },
+					details: { id: run.id },
+				};
 			},
 			...startRenderers,
 		});
@@ -428,8 +411,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		pi.registerTool({
 			name: "subagent_start_and_wait",
 			label: "Subagent start and wait",
-			description:
-				"Like subagent_start, but resolves with the subagent's report once it finishes. Cancelling the call, as when the script ends, stops the subagent. The user can't talk to you until the script ends, so use it only when the script needs the report; otherwise use subagent_start.",
+			description: descriptions.startAndWait,
 			exposure: "codemode",
 			parameters: startParams,
 			outputSchema: reportSchema,
@@ -447,8 +429,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		pi.registerTool({
 			name: "subagent_message",
 			label: "Subagent message",
-			description:
-				"Send a message to a subagent. A running one gets it after its current step; a finished or stopped one resumes with its history and reports again.",
+			description: descriptions.message,
 			// Changes a run's state, so calls on one subagent in the same message take effect in order. Like
 			// Claude Code's non-concurrency-safe tools; pi makes the whole message sequential.
 			executionMode: "sequential",
@@ -456,16 +437,11 @@ export default function basicSubagents(pi: ExtensionAPI) {
 			outputSchema: Type.Object({ id: Type.String(), resumed: Type.Boolean() }),
 			async execute(_toolCallId, params, signal) {
 				const { run, how } = await sendTo(params.id, params.message, signal);
-				// What happens next, so the model doesn't wait to find out. It may not know the run had finished, as
-				// reports wait for its turn to end.
+				// Reports wait for the model's turn to end, so it may not know the run had finished.
 				const resumed = how === "resume";
 				const before = resumed ? outbox.findLast((r) => r.id === run.id) : undefined;
-				const sent = resumed ? `Resumed ${run.id}` : `Sent to ${run.id} after its current step`;
-				const text = before
-					? `${sent}, which had ${before.status}; its reports will wake you.`
-					: `${sent}; its report will wake you.`;
 				return {
-					content: [{ type: "text", text }],
+					content: [{ type: "text", text: results.sent(run.id, resumed, before?.status) }],
 					structuredContent: { id: run.id, resumed },
 					details: { delivered: how },
 				};
@@ -476,7 +452,7 @@ export default function basicSubagents(pi: ExtensionAPI) {
 		pi.registerTool({
 			name: "subagent_stop",
 			label: "Subagent stop",
-			description: "Stop a running subagent. subagent_message resumes it.",
+			description: descriptions.stop,
 			// Changes a run's state, so it's ordered with the other calls in its message (see subagent_message).
 			executionMode: "sequential",
 			parameters: Type.Object({ id: Type.String() }),
@@ -485,11 +461,8 @@ export default function basicSubagents(pi: ExtensionAPI) {
 				const run = getRun(params.id);
 				await run.stop();
 				const queued = outbox.some((r) => r.id === run.id);
-				const tail =
-					run.status === "stopped" ? ". subagent_message resumes it." : queued ? "; its report will wake you." : ".";
-				const text = `${run.id}: ${run.status}${tail}`;
 				return {
-					content: [{ type: "text", text }],
+					content: [{ type: "text", text: results.stop(run.id, run.status, queued) }],
 					structuredContent: { id: run.id, status: run.status },
 					details: { run: { ...run.view(), session_path: run.sessionPath } },
 				};
