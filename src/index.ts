@@ -47,7 +47,9 @@ const forScript = (r: Report): Static<typeof reportSchema> => {
 };
 
 const startParams = Type.Object({
-	subagent_type: Type.Optional(StringEnum(Object.keys(SUBAGENT_TYPES) as SubagentType[])),
+	subagent_type: Type.Optional(
+		StringEnum(Object.keys(SUBAGENT_TYPES) as SubagentType[], { description: descriptions.subagentType }),
+	),
 	prompt: Type.String({ description: descriptions.prompt }),
 	description: Type.String({ description: descriptions.description }),
 	model: Type.Optional(Type.String({ description: descriptions.model })),

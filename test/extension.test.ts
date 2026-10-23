@@ -104,7 +104,7 @@ test("a direct start returns at once, telling the model not to wait", async () =
 	const { callText } = load(0);
 	const start = { subagent_type: "explore", prompt: "slow", description: "d" };
 	const text = await callText("subagent_start", start);
-	assert.match(text, /^Started sa-\w+; its report will wake you\. Do other work or end your turn\.$/);
+	assert.match(text, /^Started sa-\w+\. You'll be notified when it finishes\. Do other work or end your turn\.$/);
 	const id = text.split(" ")[1].slice(0, -1);
 	assert.equal(await callText("subagent_stop", { id }), `${id}: stopped. subagent_message resumes it.`);
 });
@@ -199,7 +199,7 @@ test("a wake names the subagents still running", async () => {
 	await new Promise((resolve) => setTimeout(resolve, 300));
 	setIdle(true);
 	handlers.agent_settled({ aborted: false });
-	assert.match(messages[1], new RegExp(`Still running: ${slow}; their reports will wake you too\\.$`));
+	assert.match(messages[1], new RegExp(`Still running: ${slow}; you'll be notified when they finish\\.$`));
 	await call("subagent_stop", { id: slow });
 });
 
@@ -276,9 +276,9 @@ test("stopping or messaging a finished run whose report hasn't arrived says it w
 	const text = await callText("subagent_start", { subagent_type: "explore", prompt: "hello", description: "d" });
 	const id = text.split(" ")[1].slice(0, -1);
 	await new Promise((resolve) => setTimeout(resolve, 300));
-	assert.equal(await callText("subagent_stop", { id }), `${id}: completed; its report will wake you.`);
+	assert.equal(await callText("subagent_stop", { id }), `${id}: completed. You'll be notified with its report.`);
 	const resumed = await callText("subagent_message", { id, message: "again" });
-	assert.equal(resumed, `Resumed ${id}, which had completed; its reports will wake you.`);
+	assert.equal(resumed, `Resumed ${id}, which had completed. You'll be notified of both reports.`);
 	await new Promise((resolve) => setTimeout(resolve, 300));
 	setIdle(true);
 	handlers.agent_settled({ aborted: false });
