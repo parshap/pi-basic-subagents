@@ -18,14 +18,15 @@ What pi-basic-subagents draws, and the rules every surface follows: its design l
 The atom: one subagent on one line.
 
 ```
-● sa-1a2b Audit auth flow · bash · 1m12s
+● sa-1a2b Audit auth flow · 1m12s · bash
 ✓ sa-1a2b Audit auth flow · completed
 ```
 
-`<glyph> <id> <description> · <state>`
+`<glyph> <id> <description> · <metrics> · <state>`
 
 - **id** bold, **description** text.
-- **state** is the current tool or `thinking` while running, and the status word once done. Failed rows add the error's first nonempty line after `failed:`. The model, the child's current context size (`132.3k ctx`), and elapsed time follow, with time last; missing metrics are omitted.
+- **metrics** are the model, the child's current context size (`132.3k ctx`), and elapsed time; missing ones are omitted.
+- **state** is the current tool or `thinking` while running, and the status word once done. Failed rows add the error's first nonempty line after `failed:`. It comes last so the line's fixed parts stay put while it changes, and it's the first thing cut.
 - **Expanded details** show the full model name. Duration covers the latest launch and freezes when it finishes.
 - Cut to the width with a `muted` `…`; never wraps.
 
@@ -34,14 +35,16 @@ The atom: one subagent on one line.
 Live Run lines for running and recently finished subagents, above the editor, in start order. No background, no header. Present only while it has rows; it's the only live surface.
 
 ```
-✓ sa-1a2b Audit auth flow · completed · opus-5-5:high · 72.1k ctx · 48s
-● sa-3c4d Map callers · bash npm test --wat… · opus-4-1:high · 132.3k ctx · 1m12s
+✓ sa-1a2b Audit auth flow · opus-5-5:high · 72.1k ctx · 48s · completed
+● sa-3c4d Map callers · opus-4-1:high · 132.3k ctx · 1m12s · bash 12s npm test --watch
 ```
 
 - **Finished rows stay until the parent ends a turn that has their reports** (the wake, or one whose script got them), so a batch shows its progress and clears once the parent has dealt with it. A stopped subagent leaves at once: whoever stopped it already knows.
 - **At most 5 lines.** With more than 5, it shows 4 rows in start order, preferring running subagents over finished ones, then a line counting the rest by status: a `muted` `+N more`, then each status's glyph and `muted` count and name (`+16 more · ● 15 running · ✗ 1 failed`). It stays short, so a failure isn't cut off at usual widths.
-- **The model's short name** follows the activity/status: omit everything through the last `/`, a leading `claude-`, and a trailing `-latest` or date snapshot (`-YYYYMMDD` or `-YYYY-MM-DD`), keeping the `:thinking` suffix.
-- **The current tool's arguments** follow its name: string arguments on one line, `path` first. They take only the width the rest of the line leaves, so they never push anything off, and they're left out when fewer than 3 columns are free besides the space before them. Control characters show escaped (`\x1b`), so arguments can't drive the terminal. With parallel calls, it's the latest one still running.
+- **The model's short name**: omit everything through the last `/`, a leading `claude-`, and a trailing `-latest` or date snapshot (`-YYYYMMDD` or `-YYYY-MM-DD`), keeping the `:thinking` suffix.
+- **The current tool's arguments** follow its name: the first line of each string argument, `path` first, up to 50 characters. Control characters show escaped (`\x1b`), so arguments can't drive the terminal. With parallel calls, it's the latest one still running.
+- **A tool running 5s or more shows its time** after its name (`bash 12s`), so a long call doesn't look stuck.
+- **A finished tool stays for 1.5s**, so fast tool and thinking turns don't flicker; `thinking` shows once no tool has run for that long.
 - The tool name is part of the muted state here, not `toolTitle`.
 
 ### Tool block

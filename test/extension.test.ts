@@ -199,17 +199,17 @@ test("a finished run stays in the widget until a turn with its report ends; a st
 	// Delivered by a wake.
 	const { id } = await call("subagent_start", { ...start, prompt: "hello" });
 	await new Promise((resolve) => setTimeout(resolve, 300));
-	assert.match(drawWidget()![0], new RegExp(`^✓ ${id} d · completed · \\d+(?:m\\d+)?s$`));
+	assert.match(drawWidget()![0], new RegExp(`^✓ ${id} d · \\d+(?:m\\d+)?s · completed$`));
 	setIdle(true);
 	handlers.agent_settled({ aborted: false }); // Delivers the report and wakes the parent.
-	assert.match(drawWidget()![0], new RegExp(`^✓ ${id} d · completed · \\d+(?:m\\d+)?s$`));
+	assert.match(drawWidget()![0], new RegExp(`^✓ ${id} d · \\d+(?:m\\d+)?s · completed$`));
 	handlers.agent_settled({ aborted: false }); // The woken turn ends.
 	assert.equal(drawWidget(), undefined);
 
 	// Returned to a script in a busy parent's turn.
 	setIdle(false);
 	const waited = await script("subagent_start_and_wait", { ...start, prompt: "hi" });
-	assert.match(drawWidget()![0], new RegExp(`^✓ ${waited.id} d · completed · \\d+(?:m\\d+)?s$`));
+	assert.match(drawWidget()![0], new RegExp(`^✓ ${waited.id} d · \\d+(?:m\\d+)?s · completed$`));
 	handlers.agent_settled({ aborted: false });
 	assert.equal(drawWidget(), undefined);
 
@@ -412,11 +412,11 @@ test("a start acknowledgment stays fixed while the widget follows the run", asyn
 	const renderer = app.definitions.get("subagent_start").renderResult;
 	const draw = (expanded = false) => renderer(start, {}, theme, { expanded }).render(300).join("\n");
 	assert.equal(draw(), `Started ${id}.\n(ctrl+o to expand)`);
-	assert.match(app.drawWidget()![0], /thinking · opus-5-5:high/);
+	assert.match(app.drawWidget()![0], /opus-5-5:high · \d+s · thinking$/);
 	await new Promise((resolve) => setTimeout(resolve, 300));
-	assert.match(app.drawWidget()![0], /completed · opus-5-5:high · 160 ctx/);
+	assert.match(app.drawWidget()![0], /opus-5-5:high · 160 ctx · \d+s · completed$/);
 	await app.call("subagent_message", { id, message: "slow again" });
-	assert.match(app.drawWidget()![0], /thinking · opus-5-5:high · 160 ctx/);
+	assert.match(app.drawWidget()![0], /opus-5-5:high · 160 ctx · \d+s · thinking$/);
 	await app.call("subagent_stop", { id });
 	assert.equal(draw(true), `Started ${id}.`);
 	await app.handlers.session_shutdown();

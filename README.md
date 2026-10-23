@@ -3,8 +3,8 @@
 Minimal subagents for [pi](https://pi.dev), where each subagent is a regular pi session with the same tools and access as your agent, rather than task-specific restricted subagents.
 
 ```
-● sa-1a2b Audit auth flow · bash rg -n "session" src/auth · opus-5-5:high · 132.3k ctx · 1m12s
-● sa-3c4d Fix flaky upload test · thinking · gpt-6-luna:max · 24.1k ctx · 24s
+● sa-1a2b Audit auth flow · opus-5-5:high · 132.3k ctx · 1m12s · bash rg -n "session" src/auth
+● sa-3c4d Fix flaky upload test · gpt-6-luna:max · 24.1k ctx · 24s · thinking
 ```
 
 ## Design

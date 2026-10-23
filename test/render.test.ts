@@ -38,11 +38,11 @@ test("a Run line keeps text from the model or child on one line, without termina
 		{ ...run, description: "Two\nlines \x1b[31mred", model: "x/m\x07", contextTokens: 3_456_789 },
 		theme,
 	);
-	assert.equal(line, "● sa-1a2b Two lines red · running · m\\x07 · 3.5M ctx");
+	assert.equal(line, "● sa-1a2b Two lines red · m\\x07 · 3.5M ctx · running");
 });
 
 test("a Run line shows a running subagent's activity, and a finished one's status", () => {
-	assert.equal(runLine({ ...run, state: "bash · 12s" }, theme), "● sa-1a2b Audit auth · bash · 12s");
+	assert.equal(runLine({ ...run, state: "bash", elapsedMs: 12_000 }, theme), "● sa-1a2b Audit auth · 12s · bash");
 	assert.equal(runLine({ ...run, status: "failed" }, theme), "✗ sa-1a2b Audit auth · failed");
 });
 
@@ -116,39 +116,36 @@ test("a Report block previews each result until expanded", () => {
 	assert.equal(renderReportMessage({}, { expanded: false, outputPad: 1 }, theme), undefined);
 });
 
-test("the widget's tool arguments fill only the free width", () => {
+test("the widget ends with the current tool, its time once slow, and its arguments' first lines", () => {
 	const view = { ...run, model: "anthropic/claude-opus-5-5:high", elapsedMs: 0 };
-	const r = {
-		status: "running",
-		view: () => view,
-		currentTool: { name: "bash", args: { command: "npm  test\n--watch", timeout: 300 } },
-	} as any;
+	const now = Date.now();
+	const tool = (args: unknown, startedAt = now, name = "bash") =>
+		widgetLine({ status: "running", view: () => view, currentTool: { name, args, startedAt } } as any, theme);
 	assert.equal(
-		widgetLine({ ...r, view: () => ({ ...view, contextTokens: 48_300 }) }, 200, theme),
-		"● sa-1a2b Audit auth · bash npm test --watch · opus-5-5:high · 48.3k ctx · 0s",
+		widgetLine({ status: "running", view: () => ({ ...view, contextTokens: 12_100 }) } as any, theme),
+		"● sa-1a2b Audit auth · opus-5-5:high · 12.1k ctx · 0s · thinking",
 	);
 	assert.equal(
-		widgetLine({ ...r, currentTool: undefined, view: () => ({ ...view, contextTokens: 12_100 }) }, 200, theme),
-		"● sa-1a2b Audit auth · thinking · opus-5-5:high · 12.1k ctx · 0s",
+		tool({ command: "npm  test --watch", timeout: 300 }),
+		"● sa-1a2b Audit auth · opus-5-5:high · 0s · bash npm test --watch",
 	);
-	const bare = "● sa-1a2b Audit auth · bash · opus-5-5:high · 0s";
-	assert.equal(widgetLine(r, 200, theme), "● sa-1a2b Audit auth · bash npm test --watch · opus-5-5:high · 0s");
-	assert.equal(widgetLine(r, bare.length + 5, theme), "● sa-1a2b Audit auth · bash npm… · opus-5-5:high · 0s");
-	assert.equal(widgetLine(r, bare.length + 4, theme), "● sa-1a2b Audit auth · bash np… · opus-5-5:high · 0s");
-	assert.equal(widgetLine(r, bare.length + 3, theme), bare);
-	const tool = (args: unknown) => widgetLine({ ...r, currentTool: { name: "edit", args } }, 200, theme);
-	assert.match(tool({ edits: [{ oldText: "a", newText: "b" }], path: "src/x.ts" }), / edit src\/x\.ts a b · /);
-	assert.match(tool({ command: "echo \x1b[99C\x07hi" }), / edit echo \\x1b\[99C\\x07hi · /);
-	const fit = widgetLine(
-		{ ...r, currentTool: { name: "bash", args: { command: "abc", timeout: 300 } } },
-		bare.length + 4,
-		theme,
+	assert.match(tool({ command: "x" }, now - 72_000), / · bash 1m12s x$/);
+	assert.match(
+		tool({ command: "\n  umask 077; python3 - <<'PY'\nimport json\nPY\n" }),
+		/ · bash umask 077; python3 - <<'PY'…$/,
 	);
-	assert.equal(fit, "● sa-1a2b Audit auth · bash abc · opus-5-5:high · 0s");
+	assert.match(tool({ command: "y".repeat(100) }), / · bash y{50}…$/);
+	assert.match(tool({ command: "abc\n" }), / · bash abc$/);
+	assert.match(tool({ a: "a".repeat(25), b: "b".repeat(25) }), / · bash a{25} b{24}…$/);
+	assert.match(tool({ path: "p".repeat(50) }), / · bash p{50}$/);
+	assert.match(
+		tool({ edits: [{ oldText: "a", newText: "b" }], path: "src/x.ts" }, now, "edit"),
+		/ edit src\/x\.ts a b$/,
+	);
+	assert.match(tool({ command: "echo \x1b[99C\x07hi" }), / bash echo \\x1b\[99C\\x07hi$/);
 	const nested = JSON.parse(`${"[".repeat(20_000)}"deep"${"]".repeat(20_000)}`);
 	assert.doesNotThrow(() => tool({ nested }));
-	const huge = tool({ content: "y".repeat(10_000_000) });
-	assert.ok(huge.length <= 200 && huge.includes("yyy…"));
+	assert.ok(tool({ content: "y".repeat(10_000_000) }).endsWith("yyy…"));
 });
 
 test("the widget shows at most 5 lines, preferring running rows, then counts the rest by status", () => {
@@ -159,18 +156,17 @@ test("the widget shows at most 5 lines, preferring running rows, then counts the
 		}) as any;
 	const runs = (statuses: string[]) => statuses.map((s, i) => r(i, s));
 	const ids = (ls: string[]) => ls.slice(0, -1).map((l) => l.split(" ")[1]);
-	assert.equal(widgetLines(runs(Array(5).fill("completed")), 200, theme).length, 5);
+	assert.equal(widgetLines(runs(Array(5).fill("completed")), theme).length, 5);
 	const capped = widgetLines(
 		runs(["completed", "completed", "running", "failed", "running", "running", "running"]),
-		200,
 		theme,
 	);
 	assert.deepEqual(ids(capped), ["sa-2", "sa-4", "sa-5", "sa-6"]);
 	assert.equal(capped[4], "+3 more · ✓ 2 completed · ✗ 1 failed");
-	const many = widgetLines(runs([...Array(19).fill("running"), "failed"]), 80, theme);
+	const many = widgetLines(runs([...Array(19).fill("running"), "failed"]), theme);
 	assert.equal(lines(many, theme).render(80)[4], "+16 more · ● 15 running · ✗ 1 failed");
 	const mixed = runs(["completed", "running", "running", "completed", "completed", "completed"]);
-	assert.deepEqual(ids(widgetLines(mixed, 200, theme)), ["sa-0", "sa-1", "sa-2", "sa-3"]);
+	assert.deepEqual(ids(widgetLines(mixed, theme)), ["sa-0", "sa-1", "sa-2", "sa-3"]);
 });
 
 test("the widget and finished summaries share session metrics", () => {
@@ -183,7 +179,7 @@ test("the widget and finished summaries share session metrics", () => {
 			contextTokens: 132_300,
 			elapsedMs: 72_000,
 		};
-		const expected = `${status === "running" ? "bash" : status} · opus-5-5:high · 132.3k ctx · 1m12s`;
+		const expected = `opus-5-5:high · 132.3k ctx · 1m12s · ${status === "running" ? "bash" : status}`;
 		const line = runLine(view, theme);
 		assert.ok(line.endsWith(expected));
 		const result = { content: [], details: { run: view } };
@@ -195,10 +191,10 @@ test("the widget and finished summaries share session metrics", () => {
 				["", line, "(ctrl+o to expand)", ""],
 			);
 		}
-		const widget = { status, view: () => view, currentTool: { name: "bash", args: {} } } as any;
-		assert.equal(widgetLine(widget, 200, theme), runLine(view, theme));
+		const widget = { status, view: () => view, currentTool: { name: "bash", args: {}, startedAt: Date.now() } } as any;
+		assert.equal(widgetLine(widget, theme), runLine(view, theme));
 	}
-	assert.equal(runLine({ ...run, state: "thinking", elapsedMs: 0 }, theme), "● sa-1a2b Audit auth · thinking · 0s");
+	assert.equal(runLine({ ...run, state: "thinking", elapsedMs: 0 }, theme), "● sa-1a2b Audit auth · 0s · thinking");
 });
 
 test("expanded stop results and reports show full model and a transcript link", () => {
@@ -239,7 +235,7 @@ test("old snapshots omit unavailable metrics, and results without details keep t
 		draw(renderReportMessage({ details: { reports: [old] } }, { expanded: true, outputPad: 0 }, theme)),
 		["", ...expected, ""],
 	);
-	assert.equal(widgetLine({ view: () => old } as any, 200, theme), "✓ sa-1a2b Audit auth · completed");
+	assert.equal(widgetLine({ view: () => old } as any, theme), "✓ sa-1a2b Audit auth · completed");
 });
 
 test("unstructured errors and legacy text expand in full with one collapsed hint", () => {
@@ -270,14 +266,10 @@ test("narrow views fit the width while expanded metadata wraps without losing va
 		elapsedMs: 72_000,
 		contextTokens: 103_602,
 	};
-	const widget = { view: () => view, currentTool: { name: "bash", args: { command: "漢字".repeat(100) } } } as any;
-	const bare = widgetLine({ ...widget, currentTool: { name: "bash", args: {} } }, 200, theme);
-	const budget = visibleWidth(bare) + 6;
-	const withArgs = widgetLine(widget, budget, theme);
-	assert.ok(visibleWidth(withArgs) <= budget);
-	assert.ok(withArgs.endsWith("· opus-5-5:high · 103.6k ctx · 1m12s"));
+	const tool = { name: "bash", args: { command: "漢字".repeat(100) }, startedAt: Date.now() };
+	const widget = { status: "running", view: () => view, currentTool: tool } as any;
 	for (const width of [1, 10, 30]) {
-		const collapsed = lines([widgetLine(widget, width, theme), runLine(view, theme)], theme).render(width);
+		const collapsed = lines([widgetLine(widget, theme), runLine(view, theme)], theme).render(width);
 		assert.ok(collapsed.every((line) => visibleWidth(line) <= width));
 		assert.ok(collapsed.every((line) => stripTerminalSequences(line).endsWith("…")));
 	}
@@ -340,7 +332,7 @@ test("failure summaries use the error, sanitize terminal controls, and keep the 
 	const colored = { ...theme, fg: (c: string, t: string) => `[${c}]${t}[/${c}]` };
 	assert.ok(runLine(view, colored).includes("[error]failed: rate limited[/error]"));
 	assert.equal(runLine(view, theme), "✗ sa-1a2b Audit auth · failed: rate limited");
-	assert.equal(widgetLine({ view: () => view } as any, 200, theme), "✗ sa-1a2b Audit auth · failed: rate limited");
+	assert.equal(widgetLine({ view: () => view } as any, theme), "✗ sa-1a2b Audit auth · failed: rate limited");
 	assert.ok(!runLine({ ...run, error, status: "completed" }, theme).includes("rate limited"));
 	const surfaces = [
 		stopRenderers.renderResult({ content: [], details: { run: view } }, {}, theme, ctx({ expanded: true })),
