@@ -34,3 +34,15 @@ Behavior is specified in [docs/spec.md](docs/spec.md) and looks in [docs/ux.md](
 ## Release
 
 Run `npm version <patch|minor|major>` and `git push --follow-tags`. The tag's workflow checks that it matches `package.json`, publishes to npm with trusted publishing, and creates the GitHub release with notes that [git-cliff](https://git-cliff.org) builds from the commit subjects since the previous tag (`cliff.toml`), so commits follow the conventions in [AGENTS.md](AGENTS.md#commits). Preview the next release's notes with `npx git-cliff --unreleased --strip all`.
+
+### Trusted publishing
+
+The npm package authorizes GitHub Actions through a trusted publisher:
+
+- Owner: `parshap`
+- Repository: `pi-basic-subagents`
+- Workflow filename: `publish.yml`
+- Environment: none
+- Allow `npm publish`: enabled
+
+Publishing uses OIDC; no npm token secret is required. If this configuration is recreated, complete a successful automated publish within two days before it expires.
