@@ -1,5 +1,7 @@
 # pi-basic-subagents
 
+[![npm version](https://img.shields.io/npm/v/pi-basic-subagents)](https://www.npmjs.com/package/pi-basic-subagents)
+
 Minimal subagents for [pi](https://pi.dev), where each subagent is a regular pi session with the same tools and access as your agent, rather than task-specific restricted subagents.
 
 ![A pi session with two running subagents above the editor, while the parent is ready for another prompt](https://raw.githubusercontent.com/parshap/pi-basic-subagents/main/docs/images/subagents.png)
