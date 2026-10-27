@@ -2,9 +2,14 @@
 
 Minimal subagents for [pi](https://pi.dev), where each subagent is a regular pi session with the same tools and access as your agent, rather than task-specific restricted subagents.
 
-```
-● sa-1a2b Audit auth flow · opus-5-5:high · 132.3k ctx · 1m12s · bash rg -n "session" src/auth
-● sa-3c4d Fix flaky upload test · gpt-6-luna:max · 24.1k ctx · 24s · thinking
+![A pi session with two running subagents above the editor, while the parent is ready for another prompt](https://raw.githubusercontent.com/parshap/pi-basic-subagents/main/docs/images/subagents.png)
+
+_Scripted demo with real pi sessions and tools; model names are illustrative._
+
+## Install
+
+```sh
+pi install npm:pi-basic-subagents
 ```
 
 ## Design
@@ -12,12 +17,6 @@ Minimal subagents for [pi](https://pi.dev), where each subagent is a regular pi 
 - **Just a pi session.** Each subagent runs in your project with your settings, extensions, MCP servers, skills, and `AGENTS.md`, and its transcript is a normal pi session you can open.
 - **Minimal.** No agent definitions, prompts, or tool lists to write: install it and ask your agent to delegate. It exposes three tools for your agent, modeled on Claude and Codex so models already know them. No commands, skills, or additions to your agent's system prompt; subagents get a few lines telling them how to work and report. No workflow engine: your agent scripts subagents with [codemode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/codemode.md).
 - **Never blocking.** Your agent starts a subagent and can steer or stop it while it works; the subagent reports back when it finishes. Your agent stays free to talk to you.
-
-## Install
-
-```sh
-pi install npm:pi-basic-subagents
-```
 
 ## Use
 
