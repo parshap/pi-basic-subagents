@@ -1,6 +1,6 @@
 {
 	"name": "pi-basic-subagents",
-	"version": "0.1.2",
+	"version": "1.0.0",
 	"description": "Minimal subagents for pi, where each subagent is a regular pi session with the same tools and access as your agent.",
 	"type": "module",
 	"license": "MIT",
